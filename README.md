@@ -43,6 +43,9 @@ bun run scripts/verify-tempo.ts <droid-session-id>   # prints the span tree and 
 - Droid only. Other harnesses would add a parser under `src/domain/harness/<name>/`.
 - The relay re-parents OTLP/JSON only (what Droid sends). A product would do this as an OpenTelemetry Collector
   processor and get protobuf, batching, retry and auth from the collector.
+- Agent sessions record only `callingSessionId` (no spawn tool-call id). The exact `SpawnAgent` call is recovered from the
+  orchestrator's session file, whose result names the agent session; an agent scanned without its orchestrator hangs
+  under the orchestrator session span instead.
 - A subagent scanned without its parent keeps the right parent span id but lands in a trace of its own.
 - Agent status is often `unknown`: session files do not record how an interactive session ended.
 - Local session file formats are undocumented and can change with any Droid release.
