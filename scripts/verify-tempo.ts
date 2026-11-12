@@ -46,7 +46,9 @@ const print = (r: Row, depth: number): void => {
 console.log(`trace ${traceId}: ${rows.length} spans`)
 for (const root of children()) print(root, 0)
 
-const subagents = rows.filter((r) => r.service === 'ember' && r.parent && byId.get(r.parent)?.service === 'cli')
+const subagents = rows.filter(
+  (r) => r.service === 'ember-backfill' && r.parent && byId.get(r.parent)?.service === 'cli',
+)
 const checks = {
   'one root': children().length === 1,
   'native Droid spans present': rows.some((r) => r.service === 'cli'),

@@ -83,7 +83,7 @@ export function parseDroidSession(input: DroidSessionInput): AgentRun | undefine
   let startedAt = Number.POSITIVE_INFINITY
   let endedAt = Number.NEGATIVE_INFINITY
   let model: string | undefined
-  let llmTurns = 0
+  const turnTimes: number[] = []
   const calls = new Map<string, ToolCall>()
 
   for (const line of input.lines) {
@@ -103,7 +103,7 @@ export function parseDroidSession(input: DroidSessionInput): AgentRun | undefine
     if (!msg.success || Number.isNaN(at) || !Array.isArray(msg.data.message.content)) continue
     const {role, modelId, content} = msg.data.message
     if (role === 'assistant') {
-      llmTurns += 1
+      turnTimes.push(at)
       model = modelId ?? model
     }
     for (const raw of content) {
@@ -149,7 +149,8 @@ export function parseDroidSession(input: DroidSessionInput): AgentRun | undefine
           cacheWrite: usage.cacheCreationTokens,
         }
       : undefined,
-    llmTurns,
+    llmTurns: turnTimes.length,
+    turnTimes,
     toolCalls: [...calls.values()].sort((a, b) => a.startedAt - b.startedAt),
   }
 }

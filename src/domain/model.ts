@@ -61,5 +61,7 @@ export interface AgentRun {
   model?: string
   tokens?: TokenUsage
   llmTurns: number
+  /** Start time of every model turn (assistant message), in order. Timestamps only. */
+  turnTimes: number[]
   toolCalls: ToolCall[]
 }

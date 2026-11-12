@@ -12,6 +12,11 @@ export interface KeyValue {
   key: string
   value: AnyValue
 }
+export interface OtlpSpanLink {
+  traceId: string
+  spanId: string
+  attributes: KeyValue[]
+}
 export interface OtlpSpan {
   traceId: string
   spanId: string
@@ -21,6 +26,7 @@ export interface OtlpSpan {
   startTimeUnixNano: string
   endTimeUnixNano: string
   attributes: KeyValue[]
+  links?: OtlpSpanLink[]
   status: {code: number; message?: string}
 }
 export interface OtlpTraceRequest {
@@ -29,6 +35,9 @@ export interface OtlpTraceRequest {
     scopeSpans: {scope: {name: string; version: string}; spans: OtlpSpan[]}[]
   }[]
 }
+
+/** Resource `service.name` of everything the session-file exporter sends (spans and logs). */
+export const SERVICE_NAME = 'ember-backfill'
 
 const SPAN_KIND_INTERNAL = 1
 const STATUS_UNSET = 0
@@ -63,11 +72,13 @@ export const EXPORTED_ATTRIBUTES = [
   'ember.usage.cache_read_tokens',
   'ember.usage.cache_write_tokens',
   'ember.tool.incomplete',
+  'ember.native.traces',
 ] as const
 type AttributeKey = (typeof EXPORTED_ATTRIBUTES)[number]
-type Attributes = Partial<Record<AttributeKey, string | number | boolean | undefined>>
+type Scalar = string | number | boolean | undefined
+type Attributes = Partial<Record<AttributeKey, Scalar>>
 
-const toKeyValues = (attrs: Attributes): KeyValue[] =>
+export const toKeyValues = <K extends string>(attrs: Partial<Record<K, Scalar>>): KeyValue[] =>
   Object.entries(attrs)
     .filter((entry): entry is [string, string | number | boolean] => entry[1] !== undefined)
     .map(([key, v]) => ({
@@ -80,7 +91,7 @@ const toKeyValues = (attrs: Attributes): KeyValue[] =>
             : {stringValue: v},
     }))
 
-const nanos = (ms: number): string => (BigInt(Math.round(ms)) * 1_000_000n).toString()
+export const nanos = (ms: number): string => (BigInt(Math.round(ms)) * 1_000_000n).toString()
 
 export const traceIdOf = (node: RunNode): string =>
   traceIdFor(
@@ -156,6 +167,40 @@ function toolSpan(run: AgentRun, call: ToolCall, traceId: string): OtlpSpan {
   }
 }
 
+/** A harness's own trace for one turn of a session, found in the backend (Droid `invoke_agent droid` root). */
+export interface NativeTurn {
+  traceId: string
+  spanId: string
+}
+
+const attrValue = (span: OtlpSpan, key: string): string | undefined => {
+  const v = span.attributes.find((a) => a.key === key)?.value
+  return v && 'stringValue' in v ? v.stringValue : undefined
+}
+
+/**
+ * Sessions whose harness already exported native spans keep the native tool spans: the Ember tool spans for
+ * them are dropped (no duplicates), and the Ember session span links to every native turn trace instead.
+ */
+export function linkNativeTurns(spans: OtlpSpan[], native: Map<string, NativeTurn[]>): OtlpSpan[] {
+  return spans.flatMap((span) => {
+    const turns = native.get(attrValue(span, 'session.id') ?? '')
+    if (!turns?.length) return [span]
+    if (span.name.startsWith('execute_tool')) return []
+    return [
+      {
+        ...span,
+        attributes: [...span.attributes, ...toKeyValues<AttributeKey>({'ember.native.traces': turns.length})],
+        links: turns.map((t) => ({
+          traceId: t.traceId,
+          spanId: t.spanId,
+          attributes: [{key: 'ember.link.type', value: {stringValue: 'native_turn'}}],
+        })),
+      },
+    ]
+  })
+}
+
 export function spansOf(node: RunNode): OtlpSpan[] {
   const traceId = traceIdOf(node)
   return [sessionSpan(node, traceId), ...node.run.toolCalls.map((call) => toolSpan(node.run, call, traceId))]
@@ -171,7 +216,7 @@ export function toTraceRequest(spans: OtlpSpan[], version: string): OtlpTraceReq
       {
         resource: {
           attributes: toKeyValues({}).concat([
-            {key: 'service.name', value: {stringValue: 'ember'}},
+            {key: 'service.name', value: {stringValue: SERVICE_NAME}},
             {key: 'service.version', value: {stringValue: version}},
           ]),
         },

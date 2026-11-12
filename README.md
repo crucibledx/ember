@@ -15,6 +15,13 @@ as one trace in any OTel backend, mostly by using what Droid already emits?
   gives native `execute_tool` spans the deterministic tool span id, so subagents hang under Droid's own Task span.
   Everything else is forwarded unchanged.
 - **No content.** Only allowlisted attribute keys are exported (`EXPORTED_ATTRIBUTES` in `src/domain/otlp.ts`).
+- **Correlated logs.** `--logs` sends one OTLP log record per agent start and end, model turn and tool call. Each
+  record carries the trace and span id of its span in the record's own fields, so a backend can jump from a log line
+  to its span and back. Bodies are templates built from names and numbers (`tool Execute ok 812ms`); attributes are
+  allowlisted (`EXPORTED_LOG_ATTRIBUTES` in `src/domain/logs.ts`). Records go out in time order, one resource per
+  session (`service.instance.id`), because Loki rejects entries much older than the newest one in a stream.
+- **Native spans first.** `--tempo <url>` looks up Droid's own turn traces. A session that has them keeps Droid's
+  tool spans; Ember drops its own copies and links the session span to each native turn instead.
 
 ## Run
 
@@ -38,6 +45,13 @@ bun run scripts/verify-tempo.ts <droid-session-id>   # prints the span tree and 
 
 `--sessions-only` leaves tool spans to Droid's native telemetry, so the same tool call is not exported twice.
 
+Backfill a whole workstream, traces and correlated logs, into a local stack:
+
+```sh
+bun run src/main.ts --workstream <orchestrator session id> --endpoint http://127.0.0.1:14318 \
+  --logs --tempo http://127.0.0.1:13200 --json
+```
+
 ## Known limits
 
 - Droid only. Other harnesses would add a parser under `src/domain/harness/<name>/`.
@@ -49,3 +63,6 @@ bun run scripts/verify-tempo.ts <droid-session-id>   # prints the span tree and 
 - A subagent scanned without its parent keeps the right parent span id but lands in a trace of its own.
 - Agent status is often `unknown`: session files do not record how an interactive session ended.
 - Local session file formats are undocumented and can change with any Droid release.
+- Native linking is per session: if Tempo has any Droid turn for a session, all Ember tool spans of that session are
+  dropped, even when part of the native telemetry is missing. Tempo's search `limit` bounds how many turns are found.
+- Log records are derived from session files, not emitted live; Droid has no native log signal.
