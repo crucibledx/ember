@@ -34,10 +34,12 @@ For Claude Code, whose beta traces already nest subagents, the gaps are differen
 for one ticket, no tree when the beta traces are off, MCP server and tool names hidden unless tool inputs are exported
 too, and no human attribution. Ember fills those.
 
-Terms used below. A **session** is one harness run (a subagent run counts as its own session). A **workstream** is a
-group of sessions a harness runs as one job (Droid: the `missionId` of an orchestrator and its agents); harnesses
-without one have none. A **piece of work** is what `ember.work.id` names, usually a ticket. `ember.agent.kind` is
-`orchestrator`, `agent`, `subagent` or `session` (a run with no orchestration around it).
+Terms used below. A **harness** is a tool that runs AI sessions and has an Ember adapter; v1's harnesses are coding
+agents, but neither the adapter contract nor `Run` requires that (§4). A **session** is one harness run (a subagent run
+counts as its own session). A **workstream** is a group of sessions a harness runs as one job (Droid: the `missionId`
+of an orchestrator and its agents); harnesses without one have none. A **piece of work** is what `ember.work.id` names,
+usually a ticket. `ember.agent.kind` is `orchestrator`, `agent`, `subagent` or `session` (a run with no orchestration
+around it).
 
 ## Complete, don't compete
 
@@ -78,6 +80,8 @@ for its own backend; a neutral cross-harness tree is not either one's job.
 ## Non-goals
 
 - Codex, Cursor and other harnesses (Codex is the first follow-up; it must need only `internal/harness/codex.go`).
+- AI usage outside coding agents (Grafana assistant, Databricks Genie, Microsoft 365 Copilot). Future direction (#14):
+  one view of all AI usage in a company. v1 adds no such source; §4 keeps the adapter contract and `Run` open to them.
 - Session browsers, transcripts, prompt or response capture views (agento11y does this). Cost, adoption and ROI views
   beyond the four dashboards (the platforms do this).
 - Resource versions (skill or MCP version → outcome) with the Forge lockfile. It needs Forge's manifest, which is not
@@ -261,6 +265,12 @@ where the input records usage per model; usage the input only gives as a total (
 the model key `unknown`, from its first emission, so a model switch never moves exported usage between series. A run id
 is the session id, or `<session id>/<subagent id>` when the harness keeps subagents inside a session. Later adapters may
 add fields but not remove methods. The core applies `Change`s, never the adapter.
+
+Nothing here assumes a coding agent. A `Run` needs only harness, session id, kind, status and start and end times;
+tool calls, turns, model, usage, parent, `Cwd` and `Branch` may be empty. An adapter without native OTLP returns a zero
+`Mapping`, and one with nothing to configure returns no `Change`s. A source read from a vendor API or audit log rather
+than local files adds an optional input interface, checked by type assertion, in its own spec; existing adapters and
+the core's handling of `Run` do not change.
 
 ### 5. The tree and deterministic ids
 
