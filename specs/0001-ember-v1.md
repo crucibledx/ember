@@ -57,9 +57,10 @@ with Factory credits; and put one `ember.work.id` on work done by different harn
 Ember does not build those views. It keeps every harness's native telemetry, fills its gaps from documented settings
 and local files, joins everything into one tree with deterministic ids, adds `ember.*` attributes, and sends standard
 OTLP to whatever backend the user runs. Ember is metadata only by default. It is a custom OpenTelemetry Collector
-distribution, so batching, retries, memory limits and exporters are upstream components, not Ember code
-(`crucibledx/hq` `design/ember-go-exception.md`). A harness vendor sees only its own harness, and a platform builds
-for its own backend; a neutral cross-harness tree is not either one's job.
+distribution, so batching, retries, memory limits and exporters are upstream components, not Ember code. Ember is
+written in Go, an accepted exception to the org's TypeScript/Bun default, because the collector and its component
+ecosystem are Go. A harness vendor sees only its own harness, and a platform builds for its own backend; a neutral
+cross-harness tree is not either one's job.
 
 ## Goals
 
