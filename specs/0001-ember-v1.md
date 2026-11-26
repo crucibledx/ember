@@ -92,6 +92,11 @@ for its own backend; a neutral cross-harness tree is not either one's job.
 
 ## Design
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/crucibledx/assets/raw/main/ember/diagrams/dark/ember-v1-architecture.svg">
+  <img alt="Ember v1 architecture: harnesses, the Ember agent, an optional gateway and the OTLP backend" src="https://github.com/crucibledx/assets/raw/main/ember/diagrams/light/ember-v1-architecture.svg">
+</picture>
+
 ### 1. Binary, packages and components
 
 Repository layout (Go, per the `engineering-standards` Go section):
@@ -258,6 +263,11 @@ is the session id, or `<session id>/<subagent id>` when the harness keeps subage
 add fields but not remove methods. The core applies `Change`s, never the adapter.
 
 ### 5. The tree and deterministic ids
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/crucibledx/assets/raw/main/ember/diagrams/dark/ember-v1-session-tree.svg">
+  <img alt="Ember v1 session tree: one trace per Droid workstream, native spans re-parented, Claude Code joined by ember.work.id" src="https://github.com/crucibledx/assets/raw/main/ember/diagrams/light/ember-v1-session-tree.svg">
+</picture>
 
 Ported from `poc/session-hierarchy` (`ids.ts`, `hierarchy.ts`, `otlp.ts`, `logs.ts`); the same inputs give the same ids:
 
