@@ -1,5 +1,5 @@
-node_modules/
+# Build output: release binaries (scripts/build.sh) and the ocb scratch module (scripts/generate.sh).
 dist/
-*.bun-build
+build/
 .DS_Store
 results/

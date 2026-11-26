@@ -1,0 +1,112 @@
+# Go checks and the release-target build. The Crucible loop workflow (crucible-loop.yml) is separate.
+name: Go
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # Manual release build: Nazar runs it to get the five binaries as workflow artifacts. Nothing is tagged or
+  # published; agents never dispatch it.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version stamped into the binaries (semver, no leading v)
+        required: true
+        default: 0.1.0-dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep GO_VERSION equal to the toolchain line in go.mod.
+  GO_VERSION: "1.27.4"
+  GOLANGCI_LINT_VERSION: v2.15.0
+  GOTOOLCHAIN: local
+  # Spec 0001 §1 binary size gate, in MiB.
+  MAX_BINARY_MIB: "80"
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: go vet
+        run: go vet ./...
+      - name: go test -race
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+
+  generate:
+    name: generated files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Regenerate components.go, go.mod and go.sum from builder-config.yaml
+        run: scripts/generate.sh
+      - name: Committed files match the generator
+        run: |
+          git status --short
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+      - name: gofmt
+        run: test -z "$(git ls-files -z '*.go' | xargs -0 gofmt -l | tee /dev/stderr)"
+
+  build:
+    name: build release targets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build five targets, print sizes, enforce the size gate
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          scripts/build.sh "$VERSION" | tee sizes.txt
+          {
+            echo "### ember binary sizes (limit ${MAX_BINARY_MIB} MiB)"
+            echo '```'
+            cat sizes.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Version output of the linux/amd64 binary
+        run: |
+          dist/ember_linux_amd64 version
+          dist/ember_linux_amd64 version --json
+      - name: The size gate fails above the limit and passes at it
+        run: |
+          truncate -s "$((MAX_BINARY_MIB + 1))M" "$RUNNER_TEMP/over"
+          truncate -s "${MAX_BINARY_MIB}M" "$RUNNER_TEMP/at"
+          if scripts/check-binary-size.sh "$MAX_BINARY_MIB" "$RUNNER_TEMP/over"; then
+            echo "size gate passed a $((MAX_BINARY_MIB + 1)) MiB file" >&2
+            exit 1
+          fi
+          scripts/check-binary-size.sh "$MAX_BINARY_MIB" "$RUNNER_TEMP/at"
+      - name: Upload binaries (manual release build only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ember-${{ inputs.version }}
+          path: dist/
+          retention-days: 14

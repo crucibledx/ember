@@ -1,0 +1,32 @@
+# OpenTelemetry Collector Builder (ocb) manifest. ocb generates only cmd/ember/components.go
+# (scripts/generate.sh); cmd/ember/main.go is Ember's own. The component list is spec 0001 §1: a new component needs a
+# spec line. Every version comes from one upstream release (core v0.166.0 / v1.72.0, contrib v0.166.0), and
+# OCB_VERSION in scripts/generate.sh matches it. Ember's own components are added here as local modules
+# (`gomod: github.com/crucibledx/ember v0.0.0`, `import: github.com/crucibledx/ember/internal/...`, `path: ./`).
+dist:
+  module: github.com/crucibledx/ember/build/ocb
+  name: ember
+  description: Ember, OpenTelemetry for coding agents
+  version: 0.1.0-dev
+  output_path: ./build/ocb
+
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.166.0
+
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.166.0
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.166.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.166.0
+
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.166.0
+  - gomod: go.opentelemetry.io/collector/exporter/otlphttpexporter v0.166.0
+  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.166.0
+
+extensions:
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/bearertokenauthextension v0.166.0
+
+providers:
+  - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.72.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.72.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.72.0
