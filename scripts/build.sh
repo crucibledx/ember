@@ -1,7 +1,7 @@
 #!/bin/sh
 # Usage: build.sh [VERSION]
 # Builds stripped ember binaries for the release targets into dist/ and checks their size (spec 0001 §1).
-# VERSION (semver, no leading v) is stamped into `ember version`; commit and date come from the git checkout.
+# VERSION (SemVer, no leading v; checked by check-version.sh) is stamped into `ember version`; commit and date come from the git checkout.
 set -eu
 
 TARGETS="darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64"
@@ -10,10 +10,7 @@ MAX_MIB=${MAX_BINARY_MIB:-80}
 cd "$(dirname "$0")/.."
 ldflags="-s -w"
 if [ -n "${1:-}" ]; then
-	if ! printf '%s\n' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
-		echo "VERSION must be semver without a leading v, e.g. 0.1.0, got '$1'" >&2
-		exit 2
-	fi
+	scripts/check-version.sh "$1"
 	ldflags="$ldflags -X main.version=$1"
 fi
 

@@ -81,6 +81,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
+      - name: The version check accepts only SemVer
+        run: scripts/check-version_test.sh
       - name: Build five targets, print sizes, enforce the size gate
         # bash runs with pipefail, so a failing build or size gate fails the step despite tee.
         shell: bash

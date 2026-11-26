@@ -22,7 +22,8 @@ How to work in this repo and where to find things. Ember is a Go custom OpenTele
   [`builder-config.yaml`](builder-config.yaml). Never edit `components.go` by hand.
 - `internal/<package>/`: everything else, per spec §1 and the "Go repos" section of the engineering standards.
 - `scripts/`: `generate.sh` (regenerate components and collector requirements), `build.sh` (five stripped release
-  targets with the size gate), `check-binary-size.sh`.
+  targets with the size gate), `check-binary-size.sh`, `check-version.sh` (release version is SemVer; cases in
+  `check-version_test.sh`).
 
 ## How to work
 
