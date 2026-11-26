@@ -87,11 +87,12 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          scripts/build.sh "$VERSION" | tee sizes.txt
+          # Outside the checkout: an untracked file would stamp the binaries' commit as -dirty.
+          scripts/build.sh "$VERSION" | tee "$RUNNER_TEMP/sizes.txt"
           {
             echo "### ember binary sizes (limit ${MAX_BINARY_MIB} MiB)"
             echo '```'
-            cat sizes.txt
+            cat "$RUNNER_TEMP/sizes.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Version output of the linux/amd64 binary
