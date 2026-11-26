@@ -176,9 +176,9 @@ export:                             # required; setup writes it from --endpoint 
   headers: {Authorization: "${env:EMBER_EXPORT_AUTH}"}  # values may only reference env; inline secrets are rejected
   tls: {insecure: false, ca_file: ""}
   compression: gzip                 # gzip | none
-  traces: {endpoint: "", protocol: "", headers: {}}   # optional per-signal overrides; an http endpoint is the full URL
-  metrics: {endpoint: "", protocol: "", headers: {}}  # e.g. http://127.0.0.1:19090/api/v1/otlp/v1/metrics
-  logs: {endpoint: "", protocol: "", headers: {}}     # e.g. http://127.0.0.1:13100/otlp/v1/logs
+  traces: {endpoint: "", protocol: ""}   # optional per-signal overrides; an http endpoint is the full URL
+  metrics: {endpoint: "", protocol: ""}  # e.g. http://127.0.0.1:19090/api/v1/otlp/v1/metrics
+  logs: {endpoint: "", protocol: ""}     # e.g. http://127.0.0.1:13100/otlp/v1/logs; each may add `headers`
 stack: false                        # true: `up` also runs the local stack (§14) and export points at it
 sessions: {poll: 5s, lookback: 168h, idle: 30m, native_grace: 2m}
 work_id: {branch_patterns: [{match: '(?:^|/)([A-Z][A-Z0-9]+-\d+)', id: '$1'}]}  # `{repo}` in id = <owner>/<repo>
@@ -189,7 +189,8 @@ gateway: {token: "${env:EMBER_GATEWAY_TOKEN}", tls: {cert_file: "", key_file: ""
 
 Validation (one function over typed structs) names the key and the fix (`export.endpoint: not a URL, e.g.
 https://otlp.example.com`). Each signal's effective destination is its override, else the shared value, for endpoint,
-protocol and headers (a non-empty per-signal `headers` replaces the shared map; values only `${env:…}`). `ember run`
+protocol and headers. An absent per-signal `headers` key inherits the shared map; a present one, even `{}`, replaces it
+(so `{}` sends that signal without the shared credentials); values only `${env:…}`. `ember run`
 renders one exporter per signal, `otlphttp/<signal>` (with `<signal>_endpoint` set to the override, else `endpoint` set
 to the base URL) or `otlp/<signal>` for `grpc` (`endpoint` only), each with that signal's effective headers and the
 shared TLS and compression, and wires each signal's pipeline to its own exporter. Collector config (golden files):
@@ -269,10 +270,12 @@ Ported from `poc/session-hierarchy` (`ids.ts`, `hierarchy.ts`, `otlp.ts`, `logs.
   `segmentSpanId(k) = sha256("ember/span/<harness>/session/<run id>/segment/<k>")[:16]` for k ≥ 2.
 - Parent of a session span: the spawning tool span when known (Task invocation, or a parent tool result naming the
   child), else the parent's session span. Ancestors are read from files whatever their age (`lookback` limits what is
-  emitted, not what is read). A run whose parent session id is known but whose parent file is missing is held back for
-  up to `sessions.idle`, rechecked each poll; after that it is emitted as the root of its own trace
-  (`session/<harness>/<run id>`, no parent span id, `ember.parent.session.id` kept), and that root key is stored in
-  state so the run never changes trace. A parent span id is only ever set within the same trace.
+  emitted, not what is read). A run whose parent file is missing but which has a workstream id itself (a Droid agent on
+  a machine without the orchestrator's files) is in the `workstream/<id>` trace with the parent's session span id
+  (computable from the parent session id) as parent, as in the POC. A run whose parent file is missing and which has no
+  workstream id is held back for up to `sessions.idle`, rechecked each poll; after that it is emitted as the root of its
+  own trace (`session/<harness>/<run id>`, no parent span id, `ember.parent.session.id` kept), and that root key is
+  stored in state so the run never changes trace. A parent span id is only ever set within the same trace.
 - **Segments.** A run's records split wherever two consecutive timestamps are more than `sessions.idle` apart; time `t`
   belongs to segment k if `t` ≤ (last record of k) + `idle`, else to k + 1. Segment 1's span is the session span;
   segment k ≥ 2 is its child and may end after it. A segment span is emitted once, when the segment closes (idle
@@ -308,15 +311,17 @@ unless it has an explicit or branch match of its own. Ember ships only the gener
    and its subagents in one trace, and a subagent tool's `.execution` child carries only `session.id` and `tool_use_id`.
    A session id the registry does not know triggers adapter discovery for that id (`Sessions` filtered by id, at most
    once per second per id) before the run counts as unknown. If the span's start is newer than the run's last parsed
-   record, the registry re-parses that run first (at most once per second per run). Known run: every span moves to the
-   run's trace; root spans get the span of the segment containing their start time as parent; tool spans
-   (`ToolSpanName`) get `toolSpanId` (§5), and references to old ids are remapped in the batch and, through a bounded
-   map (100,000 entries, 1 h TTL), in later batches; `ember.original_trace_id` is added. A group whose root already has
-   a parent (an inbound `TRACEPARENT`) is checked against the bounded map: if Ember moved that parent span, the group
-   follows it (new trace id, remapped parent id), and the registry records the parent span's run and tool call as the
-   group run's parent, so that run's later file spans land in the same trace (items already emitted are not re-emitted).
-   A parent Ember did not move is external: the group keeps its trace and parent and is only enriched. Unknown run: pass
-   through unchanged and count `ember.processor.unresolved`. Nothing is ever dropped.
+   record, the registry re-parses that run first (at most once per second per run). A run's top spans are its spans
+   whose parent is missing or belongs to another run (a group root, or a distinct-session child inside the same trace).
+   Known run: every span moves to the run's trace; top spans without an inbound parent (below) get the span of the
+   segment containing their start time as parent; tool spans (`ToolSpanName`) get `toolSpanId` (§5), and references to
+   old ids are remapped in the batch and, through a bounded map (100,000 entries, 1 h TTL), in later batches;
+   `ember.original_trace_id` is added. A top span whose parent span id is set (an inbound `TRACEPARENT`, or the caller's
+   span in the same trace) has an inbound parent and is checked against the batch and the bounded map: if Ember moved
+   that parent span, the run follows it (new trace id, remapped parent id), and the registry records the parent span's
+   run and tool call as this run's parent, so that run's later file spans land in the same trace (items already emitted
+   are not re-emitted). A parent Ember did not move is external: the run's spans keep their trace and parent and are
+   only enriched. Unknown run: pass through unchanged and count `ember.processor.unresolved`. Nothing is ever dropped.
 3. **Logs.** Native records with a run and no trace id get the run's trace id and the tool span id (tool call id
    present) or the segment span id for their timestamp.
 4. **Enrichment.** Spans, logs and metric data points with a run get `ember.harness`, `ember.agent.kind`,
@@ -362,14 +367,15 @@ translation (Prometheus, Mimir, Grafana Cloud); the local stack pins it. Cost in
 - With content off, native log bodies become their `event.name` value (or empty) and span status messages are
   removed (codes stay). Span, event and scope names pass unchanged; neither harness documents content in them.
 - Human ids follow `privacy.human_identity`: `hash` (default, `h1:` + `hex(hmac_sha256(key, id))[:16]`), `plain`, or
-  `off`. The key is one per deployment, shared by every agent and gateway sending to one backend: `setup` takes it from
-  `EMBER_HASH_KEY` in the environment or `--hash-key-file FILE`, and generates a random one only when neither is given,
-  writing it to `export.env`; the next steps print the file to copy to other machines. `doctor` and `/status` show the
-  key id (`sha256(key)[:8]`, never the key), and agents add it to every resource they export as `ember.hash_key.id`; a
-  gateway counts batches whose id differs from its own in `/status` `hash_key_mismatch` and `doctor` on the gateway
-  fails on it. This covers `ember.human.*` (each id of the comma list) and every adapter's `OwnerKeys` (Droid `user.id`,
-  Claude Code `user.account_uuid`). Hashing skips a value that already starts with `h1:`, so a gateway applying privacy
-  again leaves agent-hashed ids unchanged.
+  `off`. The key is one per deployment, shared by every agent and gateway sending to one backend: `setup` takes it,
+  first found, from `EMBER_HASH_KEY` in the environment, `--hash-key-file FILE`, or the key already in `export.env`, and
+  generates a random one only when none exists, writing it to `export.env`. A provided key that differs from the
+  persisted one is a conflict (exit 2; `--force` replaces it); the next steps print the file to copy to other machines.
+  `doctor` and `/status` show the key id (`sha256(key)[:8]`, never the key), and agents add it to every resource they
+  export as `ember.hash_key.id`; a gateway counts batches whose id differs from its own in `/status` `hash_key_mismatch`
+  and `doctor` on the gateway fails on it. This covers `ember.human.*` (each id of the comma list) and every adapter's
+  `OwnerKeys` (Droid `user.id`, Claude Code `user.account_uuid`). Hashing skips a value that already starts with `h1:`,
+  so a gateway applying privacy again leaves agent-hashed ids unchanged.
 - Parsers never copy prompts, tool inputs (except Claude Code's `subagent_type`), results, titles or paths into `Run`;
   `Cwd` is only read for the git lookup and is never exported.
 - `/status` and `ember doctor` list dropped keys with counts, never values.
@@ -554,7 +560,7 @@ required). `go test` names are the tests the owning PR adds.
 | AC-9 | Droid `Detect` (fake `Command`), `Setup` with and without `--factory-app`, and every `Mapping` value of §11 | test | #8: `go test ./internal/harness -run TestDroidSetup` |
 | AC-10 | A planted secret in Droid fixture prompts, inputs, results, titles and paths never appears in a `Run` | test | #8: `go test ./internal/harness -run TestDroidParseNoContent` |
 | AC-11 | Ids match the POC: trace `workstream/w-1` → `4a959b74cdec38fd4344f794a872b43b`; session span `droid`/`s-1` → `af766508c3733a04`; tool span `droid`/`call-1` → `600c8e79f0d6e62e` | test | #9a: `go test ./internal/tree -run TestIDsMatchPOC` |
-| AC-12 | A workstream is one trace; agent → spawn call, subagent → Task call, tool → segment; orchestrator and agent exported separately give the same spans except the agent's parent; a subagent whose parent is older than `lookback` is in the workstream trace; a subagent whose parent file is missing is held back, then emitted as its own trace root with no parent span id, and stays in that trace after the parent file appears; an agent emitted on a machine without the orchestrator's files is in the workstream trace; no span has a parent id from another trace; repeated runs are identical | test | #9a: `go test ./internal/tree -run TestForest` (port of `otlp.test.ts`) |
+| AC-12 | A workstream is one trace; agent → spawn call, subagent → Task call, tool → segment; orchestrator and agent exported separately give the same spans except the agent's parent; a subagent whose parent is older than `lookback` is in the workstream trace; a subagent whose parent file is missing is held back, then emitted as its own trace root with no parent span id, and stays in that trace after the parent file appears; an agent emitted on a machine without the orchestrator's files is in the workstream trace under the orchestrator's session span, without waiting; no span has a parent id from another trace; repeated runs are identical | test | #9a: `go test ./internal/tree -run TestForest` (port of `otlp.test.ts`) |
 | AC-13 | Segments: split at gaps over `idle`, deterministic; a time inside a gap belongs to the segment §5 names; segment spans carry exactly §8.1's segment keys; segment k ≥ 2 is a child of the session span | test | #9a: `go test ./internal/tree -run TestSegments` |
 | AC-14 | `ember.work.id` order of §5, inheritance, worktree `gitdir:` files, a `Cwd` in a subdirectory, `{repo}` from the origin URL | test | #9a: `go test ./internal/tree -run TestWorkID` |
 | AC-15 | Logs: one record per agent start and end, model turn and tool call, each on an exported span of the same trace; one resource per run, in time order; failed tool at ERROR | test | #9a: `go test ./internal/emit -run TestLogs` (port of `logs.test.ts`) |
@@ -566,7 +572,7 @@ required). `go test` names are the tests the owning PR adds.
 | AC-21 | MCP split for `server___tool` and `mcp__server__tool`; `gen_ai.tool.name` unchanged; redacted names restored only with `restore_tool_names` | test | #9c: `go test ./internal/processor/ember -run TestToolNames` |
 | AC-22 | Privacy: every key Ember emits is in §8.1 and every §8.1 key survives the filter; native keys pass only for the matched adapter; with defaults a planted secret in every attribute location, a log body and a span status message is not exported; `user.email` dropped; deny beats allow; `content: true` passes only `ContentKeys` and bodies; `human_identity` modes, keyed hash and `user.id`/`user.account_uuid` covered; `/status` lists dropped keys without values | test | #9c: `go test ./internal/processor/ember -run TestPrivacy` |
 | AC-23 | `ember setup --dry-run` in a temp `HOME` with Droid present prints the plan and writes nothing; `setup` prints the numbered next steps | cli snapshot | #10a: `go test ./internal/cli -run TestSetupOutput` |
-| AC-24 | `setup` writes changes with backups and a manifest of content hashes; a rerun reports nothing to change; an existing endpoint or taken port exits 2 naming file, key, current and wanted value and both options; `--adopt-existing` moves it to `export` with headers in `export.env`; `--stack` writes §14's per-signal endpoints; `--force` overwrites; `--undo` restores files unchanged since setup and refuses, naming the backup, for edited ones; JSON key order is kept; `--harness` and `--profile` (each shell) work; `--hash-key-file` and `EMBER_HASH_KEY` are used instead of generating a key | e2e | #10a: `go test ./internal/cli -run TestSetupLifecycle` (real binary, temp `HOME`) |
+| AC-24 | `setup` writes changes with backups and a manifest of content hashes; a rerun reports nothing to change; an existing endpoint or taken port exits 2 naming file, key, current and wanted value and both options; `--adopt-existing` moves it to `export` with headers in `export.env`; `--stack` writes §14's per-signal endpoints; `--force` overwrites; `--undo` restores files unchanged since setup and refuses, naming the backup, for edited ones; JSON key order is kept; `--harness` and `--profile` (each shell) work; `--hash-key-file` and `EMBER_HASH_KEY` are used instead of generating a key; a second `setup` with neither keeps the persisted key; a different provided key exits 2 | e2e | #10a: `go test ./internal/cli -run TestSetupLifecycle` (real binary, temp `HOME`) |
 | AC-25 | A fake adapter added only in a test file appears in `setup --dry-run` and `doctor` with no other code change | test | #10b: `go test ./internal/cli -run TestFakeAdapterNeedsNoCoreChange` |
 | AC-26 | Config validation names key and fix; inline header secrets rejected; `${env:…}` expanded; gateway on a non-loopback address without token and TLS refuses to start | test | #10b: `go test ./internal/config -run TestValidate` |
 | AC-27 | `ember run` renders §3's pipelines per mode (golden files); `--mode` overrides config; `--collector-config` replaces it; the rendered configs for http, grpc, mixed per-signal overrides and the stack load and validate with the real collector factories | test | #10b: `go test ./internal/cli -run TestRenderConfig` |
@@ -575,8 +581,8 @@ required). `go test` names are the tests the owning PR adds.
 | AC-30 | The four dashboards of §13 exist; committed JSON equals generator output; queries use only §7 Prometheus names and adapters' metric names | test | #11: `go test ./internal/dashboards` |
 | AC-31 | M1 on the Mac mini: our four workstreams show in the Agent tree (orchestrator → agents → subagents), each workstream is one trace with Droid's native spans under it, tokens and credits per agent are shown; a canary prompt string typed into a dogfood session is absent | screenshot | #12: screenshots of the tree, one trace and Cost; TraceQL span count per workstream; LogQL and TraceQL searches for the canary returning 0 rows |
 | AC-32 | Claude Code parse of a main and a subagent fixture: `toolUseResult.agentId` link, `subagent_type`, tokens, branch, MCP names; malformed lines skipped; planted secret absent | test | M2 Claude: `go test ./internal/harness -run TestClaudeParse` |
-| AC-33 | Claude Code `Setup` adds §12's keys to `settings.json` `env`, keeps other keys and order; existing generic or per-signal endpoint or protocol in user settings or env is a conflict per signal, `--adopt-existing` moves each signal's endpoint, protocol and headers and the rendered exporter uses them; a managed endpoint writes nothing for that signal, exits 2 and is not overridden by `--force`; `doctor` warns on a project `.claude/settings*.json` override; every `Mapping` value of §12 | test | M2 Claude: `go test ./internal/harness -run TestClaudeSetup` |
-| AC-34 | Claude Code native data: interaction roots under the segment span; `claude_code.tool` renamed and its `.execution` child keeps its own id and points at it, across batches; in one beta trace mixing parent and subagent spans each span goes to its own run, including the `.execution` and `.blocked_on_user` children of a subagent tool that carry no `agent_id`, in the same and a later batch; a `claude -p` session launched by a tool, with its own `session.id` under the caller's execution span, is its own run with the caller as parent; events get trace and span ids | test | M2 Claude: `go test ./internal/processor/ember -run TestClaudeNative` |
+| AC-33 | Claude Code `Setup` adds §12's keys to `settings.json` `env`, keeps other keys and order; existing generic or per-signal endpoint or protocol in user settings or env is a conflict per signal, `--adopt-existing` moves each signal's endpoint, protocol and headers and the rendered exporter uses them, including a signal with no headers next to shared `Authorization` (`headers: {}`); a managed endpoint writes nothing for that signal, exits 2 and is not overridden by `--force`; `doctor` warns on a project `.claude/settings*.json` override; every `Mapping` value of §12 | test | M2 Claude: `go test ./internal/harness -run TestClaudeSetup` |
+| AC-34 | Claude Code native data: interaction roots under the segment span; `claude_code.tool` renamed and its `.execution` child keeps its own id and points at it, across batches; in one beta trace mixing parent and subagent spans each span goes to its own run, including the `.execution` and `.blocked_on_user` children of a subagent tool that carry no `agent_id`, in the same and a later batch; a `claude -p` session launched by a tool, with its own `session.id` under the caller's execution span, both in a separate trace and inside the caller's original trace, is its own run with the caller as parent and lands in the caller's Ember trace; events get trace and span ids | test | M2 Claude: `go test ./internal/processor/ember -run TestClaudeNative` |
 | AC-35 | A Droid agent and a Claude Code session on branches with the same issue key get the same `ember.work.id` on all their spans and metrics, and `ember.lineage` gives both runs that work id so the Agent tree query groups them under one work node | test | M2 Claude: `go test ./internal/tree -run TestWorkIDAcrossHarnesses` |
 | AC-36 | Attribution from `ember` and `ledger` fixtures: started by, active, inheritance, owner and default fallbacks, bad lines counted, reload on change | test | M2 attribution: `go test ./internal/tree -run TestAttribution` |
 | AC-37 | Gateway: requests without the token get 401; two agents (orchestrator, agent) through one gateway give one trace with the agent under its spawn span; an agent span sent before the spawn span stays under the orchestrator session span; with file tool spans suppressed (spawn after `native_grace`) the native spawn span still re-parents the agent; `ember.human.*` and owner ids hashed by an agent arrive at the backend unchanged; the same human emitted by two agents with the shared key gets one id; an agent with a different key is counted in `hash_key_mismatch`; a remote run whose spawn span is in another trace is not re-parented | e2e | M2 gateway: `go test ./internal/cli -run TestGatewayMerge` (three `ember run` processes; the backend is an OTLP server in the test) |
