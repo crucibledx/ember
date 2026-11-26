@@ -9,10 +9,21 @@ if [ "$#" -lt 2 ]; then
 fi
 max_mib=$1
 shift
+case $max_mib in
+'' | *[!0-9]*)
+	echo "MAX_MIB must be a whole number, got '$max_mib'" >&2
+	exit 2
+	;;
+esac
 max_bytes=$((max_mib * 1024 * 1024))
 
 status=0
 for file in "$@"; do
+	if [ ! -f "$file" ]; then
+		echo "FAIL $file is missing"
+		status=1
+		continue
+	fi
 	bytes=$(wc -c <"$file" | tr -d ' ')
 	mib=$(awk -v b="$bytes" 'BEGIN { printf "%.1f", b / 1048576 }')
 	if [ "$bytes" -gt "$max_bytes" ]; then

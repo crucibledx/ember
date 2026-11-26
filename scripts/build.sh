@@ -10,6 +10,10 @@ MAX_MIB=${MAX_BINARY_MIB:-80}
 cd "$(dirname "$0")/.."
 ldflags="-s -w"
 if [ -n "${1:-}" ]; then
+	if ! printf '%s\n' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+		echo "VERSION must be semver without a leading v, e.g. 0.1.0, got '$1'" >&2
+		exit 2
+	fi
 	ldflags="$ldflags -X main.version=$1"
 fi
 

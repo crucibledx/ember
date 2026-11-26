@@ -17,6 +17,7 @@ gofmt -w cmd/ember/components.go
 
 # ocb resolved the collector's module graph in build/ocb; pin the same versions here so this module builds exactly
 # what the manifest names, then let tidy drop what Ember does not import.
-(cd build/ocb && go list -m -f "{{if and .Version (not .Main) (ne .Path \"${MODULE}\")}}-require={{.Path}}@{{.Version}}{{end}}" all) |
-	xargs go mod edit
+# The assignment makes set -e catch a failing go list, which a pipeline would hide.
+requirements=$(cd build/ocb && go list -m -f "{{if and .Version (not .Main) (ne .Path \"${MODULE}\")}}-require={{.Path}}@{{.Version}}{{end}}" all)
+printf '%s\n' "$requirements" | xargs go mod edit
 go mod tidy

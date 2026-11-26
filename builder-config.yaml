@@ -26,6 +26,7 @@ exporters:
 extensions:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/bearertokenauthextension v0.166.0
 
+# Config providers only pin versions here; cmd/ember/main.go wires them (collectorSettings), so add one in both.
 providers:
   - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.72.0
   - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.72.0

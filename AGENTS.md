@@ -29,7 +29,8 @@ How to work in this repo and where to find things. Ember is a Go custom OpenTele
 - Nothing is approved product direction until a spec merges, here in `specs/` or in `crucibledx/hq` `specs/`.
   Research notes, roadmaps and unmerged drafts (including the Forge manifest Ember plans to read) are input, not
   decisions.
-- Run the Go checks in the loop contract before every push. The org Bun CI does not apply here.
+- Run the Go checks before every push (details in the loop contract): `golangci-lint run`, `go vet ./...`,
+  `go test -race ./...`, `go build ./...`. The org Bun CI does not apply here.
 - A collector component is added or bumped in `builder-config.yaml`, then `scripts/generate.sh`; never with
   `go get` alone. All component versions come from one upstream release.
 
