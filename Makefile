@@ -16,19 +16,21 @@ OCB_VERSION := v0.166.0
 
 # Spec 0001 §1: release targets and the binary size gate in MiB.
 TARGETS := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64
-MAX_BINARY_MIB ?= 80
-ifeq ($(strip $(MAX_BINARY_MIB)),)
-MAX_BINARY_MIB := 80
+# VERSION is stamped into `ember version` by `make dist`; empty keeps the default in cmd/ember/main.go.
+# Both come from the command line or the environment and are untrusted. $(value) copies them unexpanded into simple
+# variables, so a `$(shell ...)` or `$x` in them is never run or substituted by make. Recipes read them only through
+# the environment, quoted, and release-inputs validates both before any build.
+override VERSION := $(value VERSION)
+override MAX_BINARY_MIB := $(value MAX_BINARY_MIB)
+ifeq ($(MAX_BINARY_MIB),)
+override MAX_BINARY_MIB := 80
 endif
-# Stamped into `ember version` by `make dist`; empty keeps the default in cmd/ember/main.go.
-VERSION ?=
-# Recipes read both through the environment, never as make text, so a value cannot inject shell code.
 export MAX_BINARY_MIB VERSION
 
 BINARIES := $(foreach target,$(TARGETS),dist/ember_$(subst /,_,$(target))$(if $(filter windows/%,$(target)),.exe))
 
 .DEFAULT_GOAL := check
-.PHONY: check build vet test lint fmt golangci-lint-version generate dist release-version clean FORCE
+.PHONY: check build vet test lint fmt golangci-lint-version generate dist release-inputs clean FORCE
 
 check: build vet test lint
 
@@ -67,12 +69,13 @@ generate:
 dist: $(BINARIES)
 	scripts/check-binary-size.sh "$$MAX_BINARY_MIB" $(BINARIES)
 
-# Every target binary is rebuilt (the Go build cache keeps that cheap), after the version check.
-dist/ember_%: FORCE | release-version
+# Every target binary is rebuilt (the Go build cache keeps that cheap), after the input checks.
+dist/ember_%: FORCE | release-inputs
 	CGO_ENABLED=0 GOOS=$(word 1,$(subst _, ,$*)) GOARCH=$(basename $(word 2,$(subst _, ,$*))) \
 		$(GO) build -trimpath -ldflags "-s -w $${VERSION:+-X main.version=$$VERSION}" -o $@ ./cmd/ember
 
-release-version:
+release-inputs:
+	@case "$$MAX_BINARY_MIB" in *[!0-9]*) echo "MAX_BINARY_MIB must be a whole number, got '$$MAX_BINARY_MIB'" >&2; exit 2;; esac
 	@if [ -n "$$VERSION" ]; then scripts/check-version.sh "$$VERSION"; fi
 
 clean:
