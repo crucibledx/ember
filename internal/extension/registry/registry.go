@@ -24,6 +24,7 @@ type Snapshot struct {
 	Idle                                    time.Duration
 	LastRecord                              time.Time
 	StartedBy                               string
+	WorkstreamID                            string
 	Active                                  []string
 }
 type Source interface {

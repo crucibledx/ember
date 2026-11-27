@@ -228,7 +228,7 @@ func (c *core) publish(forest *tree.Forest) {
 		for _, call := range node.Run.ToolCalls {
 			spans[call.ID] = registry.SpanRef{TraceID: node.TraceID(), SpanID: tree.ToolSpanID(node.Run.Harness, call.ID)}
 		}
-		c.registry.Put(registry.Snapshot{Run: node.Run, TraceID: node.TraceID(), RootKey: node.RootKey, RootSessionID: node.RootSessionID, WorkID: node.WorkID, Segments: node.Segments, ToolSpans: spans, Idle: node.Idle, LastRecord: tree.LastRecord(node.Run), StartedBy: node.StartedBy, Active: append([]string(nil), node.Active...)})
+		c.registry.Put(registry.Snapshot{Run: node.Run, TraceID: node.TraceID(), RootKey: node.RootKey, RootSessionID: node.RootSessionID, WorkID: node.WorkID, WorkstreamID: node.WorkstreamID, Segments: node.Segments, ToolSpans: spans, Idle: node.Idle, LastRecord: tree.LastRecord(node.Run), StartedBy: node.StartedBy, Active: append([]string(nil), node.Active...)})
 	}
 }
 func (c *core) Resolve(ctx context.Context, key registry.Key, after time.Time) (registry.Snapshot, error) {
