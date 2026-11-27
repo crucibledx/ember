@@ -4,16 +4,19 @@ Read by the Crucible loop agents (`implement-spec`, `verifier`). Keep it accurat
 
 - **State:** Go module `github.com/crucibledx/ember`, a custom OpenTelemetry Collector distribution built from
   `builder-config.yaml`. Spec: `specs/0001-ember-v1.md`.
-- **Toolchain:** Go 1.27.4 (`toolchain` in `go.mod`) and golangci-lint v2.15.0. The `Go` workflow pins the same
-  versions with `GOTOOLCHAIN=local`; change them together.
+- **Toolchain:** Go 1.27.4 (`toolchain` in `go.mod`; the `Go` workflow's `GO_VERSION` matches it, with
+  `GOTOOLCHAIN=local`; change them together) and golangci-lint v2.15.0 (`GOLANGCI_LINT_VERSION` in the `Makefile`,
+  which CI reads).
 - **Install:** none beyond Go; modules download on first build.
-- **Checks** (all must pass before a push; CI runs the first four on ubuntu, macos and windows):
-  `golangci-lint run`, `go vet ./...`, `go test -race ./...` (needs cgo), `go build ./...`.
-  When `builder-config.yaml` or a collector dependency changes: `scripts/generate.sh`, then commit the changed
+- **Checks** (all must pass before a push; CI runs them on ubuntu, macos and windows): `make check`, which runs
+  `make build` (`go build ./...`), `make vet` (`go vet -tags e2e ./...`), `make test` (`go test -race ./...`, needs
+  cgo), `make lint` (`golangci-lint run`) and `make e2e` (`go test -count=1 -tags e2e ./e2e/...`). `make fmt` formats.
+  When `builder-config.yaml` or a collector dependency changes: `make generate`, then commit the changed
   `cmd/ember/components.go`, `go.mod` and `go.sum` (CI fails if they differ from the generator output).
-  Release targets and the 80 MiB size gate: `scripts/build.sh` (five stripped binaries into `dist/`). Cross-builds
+  Release targets and the 80 MiB size gate: `make dist` (five stripped binaries into `dist/`). Cross-builds
   fill the Go build cache by several GB; run `go clean -cache` afterwards on machines short of disk.
 - **Commit style:** `chore: ...` / `docs: ...` until v0.1.0, then `feat(v0.x.y): ...` / `fix(v0.x.y): ...`.
-- **Specs:** `specs/NNNN-slug.md`, see `crucibledx/hq` `specs/README.md`. Design drafts live in `docs/`.
+- **Specs:** `specs/NNNN-slug.md`, format and approval rules in [`specs/README.md`](../specs/README.md). Design drafts
+  live in `docs/`.
 - **Release:** manual. Loop PRs never tag or publish. The `Go` workflow's `workflow_dispatch` release build (binaries
   as workflow artifacts) is run by Nazar only; GoReleaser on a tag arrives in M3.

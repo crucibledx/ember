@@ -24,7 +24,6 @@ concurrency:
 env:
   # Keep GO_VERSION equal to the toolchain line in go.mod.
   GO_VERSION: "1.27.4"
-  GOLANGCI_LINT_VERSION: v2.15.0
   GOTOOLCHAIN: local
   # Spec 0001 §1 binary size gate, in MiB.
   MAX_BINARY_MIB: "80"
@@ -37,23 +36,33 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # make recipes are POSIX sh; on Windows this is Git Bash.
+        shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: go build
-        run: go build ./...
+        run: make build
       - name: go vet
-        run: go vet ./...
+        run: make vet
       - name: go test -race
-        env:
-          CGO_ENABLED: "1"
-        run: go test -race ./...
-      - name: golangci-lint
+        run: make test
+      - name: golangci-lint version from the Makefile
+        id: tools
+        run: echo "golangci-lint=$(make -s golangci-lint-version)" >> "$GITHUB_OUTPUT"
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          version: ${{ steps.tools.outputs.golangci-lint }}
+          install-only: true
+      - name: golangci-lint
+        run: make lint
+      - name: e2e
+        run: make e2e
 
   generate:
     name: generated files
@@ -64,7 +73,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Regenerate components.go, go.mod and go.sum from builder-config.yaml
-        run: scripts/generate.sh
+        run: make generate
       - name: Committed files match the generator
         run: |
           git status --short
@@ -83,6 +92,19 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: The version check accepts only SemVer
         run: scripts/check-version_test.sh
+      - name: make passes release inputs to the checks literally
+        # Single quotes keep the shell from expanding these; make must not expand them either. If it did, $$ would become
+        # $, so the injected touch would create the marker checked below.
+        run: |
+          fail() { echo "$1" >&2; exit 1; }
+          make -s release-inputs VERSION=1.2.3 || fail "rejected VERSION=1.2.3"
+          for bad in 'VERSION=$(shell touch "$$RUNNER_TEMP/ran")1.2.3' 'VERSION=$x' 'MAX_BINARY_MIB=$(shell touch "$$RUNNER_TEMP/ran")80'; do
+            if make -s release-inputs "$bad"; then fail "accepted $bad"; fi
+          done
+          if MAX_BINARY_MIB='$(shell touch "$$RUNNER_TEMP/ran")80' make -s release-inputs; then fail "accepted MAX_BINARY_MIB from the environment"; fi
+          # Any recipe exports VERSION to its shell; golangci-lint-version is the cheapest one.
+          make -s golangci-lint-version 'VERSION=$(shell touch "$$RUNNER_TEMP/ran")1.2.3' >/dev/null
+          test ! -e "$RUNNER_TEMP/ran" || fail "make ran a command from an input"
       - name: Build five targets, print sizes, enforce the size gate
         # bash runs with pipefail, so a failing build or size gate fails the step despite tee.
         shell: bash
@@ -90,7 +112,8 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           # Outside the checkout: an untracked file would stamp the binaries' commit as -dirty.
-          scripts/build.sh "$VERSION" | tee "$RUNNER_TEMP/sizes.txt"
+          # -s keeps make's command echo out of the size report.
+          make -s dist | tee "$RUNNER_TEMP/sizes.txt"
           {
             echo "### ember binary sizes (limit ${MAX_BINARY_MIB} MiB)"
             echo '```'
@@ -101,15 +124,6 @@ jobs:
         run: |
           dist/ember_linux_amd64 version
           dist/ember_linux_amd64 version --json
-      - name: The size gate fails above the limit and passes at it
-        run: |
-          truncate -s "$((MAX_BINARY_MIB + 1))M" "$RUNNER_TEMP/over"
-          truncate -s "${MAX_BINARY_MIB}M" "$RUNNER_TEMP/at"
-          if scripts/check-binary-size.sh "$MAX_BINARY_MIB" "$RUNNER_TEMP/over"; then
-            echo "size gate passed a $((MAX_BINARY_MIB + 1)) MiB file" >&2
-            exit 1
-          fi
-          scripts/check-binary-size.sh "$MAX_BINARY_MIB" "$RUNNER_TEMP/at"
       - name: Upload binaries (manual release build only)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7

@@ -1,17 +1,109 @@
-# golangci-lint v2 configuration. CI pins the golangci-lint version in .github/workflows/go.yml.
+# golangci-lint v2 configuration. The version is pinned once, as GOLANGCI_LINT_VERSION in the Makefile.
 version: "2"
+
+run:
+  # The end-to-end tests sit behind this tag; lint them too.
+  build-tags:
+    - e2e
 
 linters:
   default: standard
   enable:
+    - depguard
     - errorlint
+    - funlen
     - misspell
     - nolintlint
     - unconvert
   settings:
+    # Context packages (AGENTS.md, Layout) do no I/O and never import an adapter: imports point inward.
+    depguard:
+      rules:
+        contexts:
+          files:
+            - "**/internal/buildinfo/**"
+            - "**/internal/config/**"
+            - "**/internal/doctor/**"
+            - "**/internal/emit/**"
+            - "**/internal/harness/**"
+            - "**/internal/privacy/**"
+            - "**/internal/problems/**"
+            - "**/internal/setup/**"
+            - "**/internal/tree/**"
+            - "!$test"
+          deny:
+            - pkg: os
+              desc: context packages do no I/O; take an io.Reader, io.Writer, fs.FS or an interface of your own
+            - pkg: net$
+              desc: context packages do no I/O; net/url and net/netip are fine
+            - pkg: net/http
+              desc: context packages do no I/O
+            - pkg: database/sql
+              desc: context packages do no I/O
+            - pkg: syscall
+              desc: context packages do no I/O
+            - pkg: io/ioutil
+              desc: context packages do no I/O
+            - pkg: golang.org/x/sys
+              desc: context packages do no I/O
+            - pkg: crypto/tls$
+              desc: context packages do no I/O
+            - pkg: github.com/spf13/cobra
+              desc: commands belong in internal/cli
+            - pkg: go.opentelemetry.io/collector/otelcol
+              desc: collector wiring belongs in cmd/ember and the component adapters
+            - pkg: go.opentelemetry.io/collector/confmap/provider
+              desc: config providers read files and env; the adapter passes the decoded data in
+            - pkg: go.opentelemetry.io/collector/component
+              desc: collector component APIs belong in the component adapters; pdata and confmap are fine
+            - pkg: go.opentelemetry.io/collector/receiver
+              desc: collector component APIs belong in the component adapters; pdata and confmap are fine
+            - pkg: go.opentelemetry.io/collector/processor
+              desc: collector component APIs belong in the component adapters; pdata and confmap are fine
+            - pkg: go.opentelemetry.io/collector/exporter
+              desc: collector component APIs belong in the component adapters; pdata and confmap are fine
+            - pkg: go.opentelemetry.io/collector/extension
+              desc: collector component APIs belong in the component adapters; pdata and confmap are fine
+            - pkg: go.opentelemetry.io/collector/connector
+              desc: collector component APIs belong in the component adapters; pdata and confmap are fine
+            - pkg: go.opentelemetry.io/collector/consumer
+              desc: collector component APIs belong in the component adapters; pdata and confmap are fine
+            - pkg: go.opentelemetry.io/collector/service
+              desc: collector component APIs belong in the component adapters; pdata and confmap are fine
+            - pkg: github.com/open-telemetry/opentelemetry-collector-contrib
+              desc: collector component APIs belong in the component adapters; pdata and confmap are fine
+            - pkg: github.com/crucibledx/ember/cmd
+              desc: imports point inward
+            - pkg: github.com/crucibledx/ember/internal/cli
+              desc: imports point inward; a context never imports an adapter
+            - pkg: github.com/crucibledx/ember/internal/daemon
+              desc: imports point inward; a context never imports an adapter
+            - pkg: github.com/crucibledx/ember/internal/extension
+              desc: imports point inward; a context never imports an adapter
+            - pkg: github.com/crucibledx/ember/internal/processor
+              desc: imports point inward; a context never imports an adapter
+            - pkg: github.com/crucibledx/ember/internal/receiver
+              desc: imports point inward; a context never imports an adapter
+            - pkg: github.com/crucibledx/ember/internal/stack
+              desc: imports point inward; a context never imports an adapter
+            - pkg: github.com/crucibledx/ember/internal/dashboards
+              desc: imports point inward; a context never imports tooling
+            - pkg: github.com/crucibledx/ember/internal/tools
+              desc: imports point inward; a context never imports tooling
+            - pkg: github.com/crucibledx/ember/e2e
+              desc: end-to-end test code is not imported by product code
+    funlen:
+      lines: 80
+      statements: -1
     nolintlint:
       require-explanation: true
       require-specific: true
+  exclusions:
+    rules:
+      # A test's case table makes it long without making it complex.
+      - path: _test\.go
+        linters:
+          - funlen
 
 formatters:
   enable:
