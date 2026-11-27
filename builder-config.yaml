@@ -12,6 +12,9 @@ dist:
 
 receivers:
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.166.0
+  - gomod: github.com/crucibledx/ember v0.0.0
+    import: github.com/crucibledx/ember/internal/receiver/sessions
+    path: ./
 
 processors:
   - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.166.0
@@ -25,6 +28,9 @@ exporters:
 
 extensions:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/bearertokenauthextension v0.166.0
+  - gomod: github.com/crucibledx/ember v0.0.0
+    import: github.com/crucibledx/ember/internal/extension/registry
+    path: ./
 
 # Config providers only pin versions here; cmd/ember/main.go wires them (collectorSettings), so add one in both.
 providers:

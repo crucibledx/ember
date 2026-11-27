@@ -45,9 +45,7 @@ func TestComponentsMatchSpec(t *testing.T) {
 	}
 	// Ember's own components land with the issue that implements them; that issue deletes its entry here.
 	notYetBuilt := map[string]string{
-		"receiver/ember_sessions": "crucibledx/ember#9",
-		"processor/ember":         "crucibledx/ember#9",
-		"extension/ember":         "crucibledx/ember#9",
+		"processor/ember": "crucibledx/ember#9",
 	}
 
 	factories, err := components()
