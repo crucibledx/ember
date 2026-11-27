@@ -91,7 +91,8 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           # Outside the checkout: an untracked file would stamp the binaries' commit as -dirty.
-          make dist | tee "$RUNNER_TEMP/sizes.txt"
+          # -s keeps make's command echo out of the size report.
+          make -s dist | tee "$RUNNER_TEMP/sizes.txt"
           {
             echo "### ember binary sizes (limit ${MAX_BINARY_MIB} MiB)"
             echo '```'

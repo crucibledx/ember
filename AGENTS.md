@@ -53,13 +53,13 @@ Never edit `cmd/ember/components.go` by hand; it comes from [`builder-config.yam
 | Target | Runs |
 |---|---|
 | `make check` (default) | `make build vet test lint` |
-| `make build` | `go build -o bin/ ./...` (every package; the binary lands in `bin/`) |
+| `make build` | `go build ./...` |
 | `make vet` | `go vet ./...` |
 | `make test` | `go test -race ./...` with cgo on |
 | `make lint` | `golangci-lint run` |
 | `make generate` | ocb from `builder-config.yaml`, then `components.go`, `go.mod` and `go.sum` |
 | `make dist [VERSION=x.y.z]` | five stripped release binaries in `dist/`, then the size gate |
-| `make clean` | removes `bin/`, `dist/` and `build/` |
+| `make clean` | removes `dist/` and `build/` |
 
 Two checks stay shell scripts in `scripts/`, called by `make dist` and tested on their own in CI:
 `check-binary-size.sh` (the size gate; CI feeds it files just over and at the limit) and `check-version.sh` (the

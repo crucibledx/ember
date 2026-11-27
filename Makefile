@@ -2,7 +2,7 @@
 #   make check                   build, vet, race tests and lint: what CI runs on every OS
 #   make generate                regenerate cmd/ember/components.go, go.mod and go.sum from builder-config.yaml
 #   make dist [VERSION=x.y.z]    five stripped release binaries in dist/ and the size gate
-#   make clean                   remove bin/, dist/ and build/
+#   make clean                   remove dist/ and build/
 
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
@@ -14,6 +14,9 @@ OCB_VERSION := v0.166.0
 # Spec 0001 §1: release targets and the binary size gate in MiB.
 TARGETS := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64
 MAX_BINARY_MIB ?= 80
+ifeq ($(strip $(MAX_BINARY_MIB)),)
+MAX_BINARY_MIB := 80
+endif
 # Stamped into `ember version` by `make dist`; empty keeps the default in cmd/ember/main.go.
 VERSION ?=
 # Recipes read both through the environment, never as make text, so a value cannot inject shell code.
@@ -27,7 +30,7 @@ BINARIES := $(foreach target,$(TARGETS),dist/ember_$(subst /,_,$(target))$(if $(
 check: build vet test lint
 
 build:
-	$(GO) build -o bin/ ./...
+	$(GO) build ./...
 
 vet:
 	$(GO) vet ./...
@@ -65,6 +68,6 @@ release-version:
 	@if [ -n "$$VERSION" ]; then scripts/check-version.sh "$$VERSION"; fi
 
 clean:
-	rm -rf bin dist build
+	rm -rf dist build
 
 FORCE:
