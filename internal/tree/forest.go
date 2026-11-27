@@ -127,6 +127,9 @@ func linkParent(forest *Forest, node *Node, roots RootState) {
 	parent := forest.Nodes[node.Run.Harness+"/"+ref.SessionID]
 	if parent == nil {
 		parent = forest.Nodes[ref.SessionID]
+		if parent != nil && parent.Run.Harness != node.Run.Harness {
+			parent = nil
+		}
 	}
 	if parent != nil {
 		if key, ok := roots.RootKey(node.Run.Harness, node.Run.SessionID); ok {

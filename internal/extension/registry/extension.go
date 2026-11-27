@@ -21,6 +21,7 @@ type Extension struct {
 	registry *Registry
 	config   *Config
 	settings component.TelemetrySettings
+	version  string
 	mu       sync.Mutex
 	listener net.Listener
 	server   *http.Server
@@ -68,7 +69,11 @@ func (e *Extension) serveHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(e.registry.status(e.config))
+	response := e.registry.status(e.config)
+	if e.version != "" {
+		response.Version = e.version
+	}
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 type harnessStatus struct {

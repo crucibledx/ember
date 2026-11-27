@@ -120,19 +120,16 @@ func (c *core) Poll(ctx context.Context) error {
 		if !c.changed(item.adapter, item.ref) {
 			continue
 		}
+		files := c.fileStates(item.ref)
 		run, err := item.adapter.Parse(os.DirFS(c.userHome), item.ref)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("parse %s session %s: %w", item.adapter.Name(), item.ref.RunID, err))
 			continue
 		}
-		state := c.state.Runs[stateKey(run.Harness, run.SessionID)]
-		if state == nil {
-			state = &runState{}
-			c.state.Runs[stateKey(run.Harness, run.SessionID)] = state
-		}
-		state.Files, state.Run = c.fileStates(item.ref), run
+		c.updateRun(run, files)
 	}
 	c.applyParents()
+	c.applyRegistryOwners()
 	forest := c.forest(now)
 	c.publish(forest)
 	if c.traces != nil {
@@ -198,17 +195,44 @@ func (c *core) changed(adapter harness.Adapter, ref harness.SessionRef) bool {
 		return true
 	}
 	for name, info := range current {
-		if old.Files[name] != info {
+		previous := old.Files[name]
+		if previous.Size != info.Size || !previous.ModTime.Equal(info.ModTime) {
 			return true
 		}
 	}
 	return false
+}
+func (c *core) updateRun(run harness.Run, files map[string]fileState) {
+	id := stateKey(run.Harness, run.SessionID)
+	state := c.state.Runs[id]
+	if state == nil {
+		state = &runState{}
+		c.state.Runs[id] = state
+	} else if state.FinalMetrics && runSupersedes(state.Run, run) {
+		state.FinalMetrics = false
+	}
+	state.Files, state.Run = files, run
+}
+func runSupersedes(previous, next harness.Run) bool {
+	return tree.LastRecord(next).After(tree.LastRecord(previous)) ||
+		tree.Terminal(previous.Status) != tree.Terminal(next.Status)
 }
 func (c *core) applyParents() {
 	for _, s := range c.state.Runs {
 		key := registry.Key{Harness: s.Run.Harness, RunID: s.Run.SessionID}
 		if parent, call, ok := c.registry.Parent(key); ok {
 			s.Run.Parent = &harness.ParentRef{SessionID: parent.RunID, ToolCallID: call}
+		}
+	}
+}
+func (c *core) applyRegistryOwners() {
+	for _, state := range c.state.Runs {
+		if state.Run.Owner != "" {
+			continue
+		}
+		key := registry.Key{Harness: state.Run.Harness, RunID: state.Run.SessionID}
+		if snapshot, ok := c.registry.Get(key); ok && snapshot.Run.Owner != "" {
+			state.Run.Owner = snapshot.Run.Owner
 		}
 	}
 }
@@ -243,6 +267,7 @@ func (c *core) Resolve(ctx context.Context, key registry.Key, after time.Time) (
 		}
 	}
 	c.applyParents()
+	c.applyRegistryOwners()
 	c.publish(c.forest(c.now()))
 	if err := saveState(c.home, c.state); err != nil {
 		return registry.Snapshot{}, err
@@ -266,16 +291,12 @@ func (c *core) resolveRun(key registry.Key) error {
 			if ref.RunID != key.RunID {
 				continue
 			}
+			files := c.fileStates(ref)
 			run, err := adapter.Parse(os.DirFS(c.userHome), ref)
 			if err != nil {
 				return err
 			}
-			state := c.state.Runs[stateKey(run.Harness, run.SessionID)]
-			if state == nil {
-				state = &runState{}
-				c.state.Runs[stateKey(run.Harness, run.SessionID)] = state
-			}
-			state.Files, state.Run = c.fileStates(ref), run
+			c.updateRun(run, files)
 			return nil
 		}
 	}

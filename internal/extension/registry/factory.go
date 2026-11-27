@@ -13,5 +13,5 @@ func NewFactory() extension.Factory {
 	return extension.NewFactory(metadata.Type, createDefaultConfig, createExtension, metadata.ExtensionStability)
 }
 func createExtension(_ context.Context, set extension.Settings, cfg component.Config) (extension.Extension, error) {
-	return &Extension{registry: New(), config: cfg.(*Config), settings: set.TelemetrySettings}, nil
+	return &Extension{registry: New(), config: cfg.(*Config), settings: set.TelemetrySettings, version: set.BuildInfo.Version}, nil
 }

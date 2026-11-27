@@ -59,7 +59,7 @@ func loadState(home string) (*diskState, error) {
 		return nil, errors.New("decode session state: unsupported schema or null runs")
 	}
 	for key, state := range loaded.Runs {
-		if state == nil || state.Run.Harness == "" || state.Run.SessionID == "" {
+		if state == nil || state.Run.Harness == "" || state.Run.SessionID == "" || state.Run.StartedAt.IsZero() {
 			return nil, fmt.Errorf("decode session state: invalid run %q", key)
 		}
 		qualified := stateKey(state.Run.Harness, state.Run.SessionID)
