@@ -105,6 +105,17 @@ func (r *Registry) Put(snapshot Snapshot) {
 	defer r.mu.Unlock()
 	snapshot = copySnapshot(snapshot)
 	key := Key{snapshot.Run.Harness, snapshot.Run.SessionID}
+	if previous, ok := r.snaps[key]; ok {
+		if snapshot.Run.Owner == "" {
+			snapshot.Run.Owner = previous.Run.Owner
+		}
+		if snapshot.StartedBy == "" {
+			snapshot.StartedBy = previous.StartedBy
+		}
+	}
+	if snapshot.StartedBy == "" && snapshot.Run.Owner != "" {
+		snapshot.StartedBy = snapshot.Run.Harness + ":" + snapshot.Run.Owner
+	}
 	r.snaps[key] = snapshot
 	for _, call := range snapshot.Run.ToolCalls {
 		r.owners[call.ID] = key
@@ -158,9 +169,12 @@ func (r *Registry) Parent(key Key) (Key, string, bool) {
 }
 func (r *Registry) NoteOwner(key Key, owner string) {
 	r.mu.Lock()
-	s := r.snaps[key]
-	if s.Run.Owner == "" {
+	s, ok := r.snaps[key]
+	if ok && s.Run.Owner == "" {
 		s.Run.Owner = owner
+		if s.StartedBy == "" {
+			s.StartedBy = s.Run.Harness + ":" + owner
+		}
 		r.snaps[key] = s
 	}
 	r.mu.Unlock()

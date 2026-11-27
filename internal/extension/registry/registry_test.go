@@ -43,6 +43,12 @@ func TestRegistryCopiesAndStatus(t *testing.T) {
 	if again.Run.Usage["model"].Input != 1 {
 		t.Fatal("output was not copied")
 	}
+	r.NoteOwner(Key{"fake", "run"}, "native")
+	r.Put(Snapshot{Run: run})
+	owner, _ := r.Get(Key{"fake", "run"})
+	if owner.Run.Owner != "native" || owner.StartedBy != "fake:native" {
+		t.Fatal("native owner attribution was not preserved")
+	}
 	r.NoteNative(Key{"fake", "run"}, time.Unix(1, 0))
 	r.IncUnresolved()
 	r.IncHashKeyMismatch()
