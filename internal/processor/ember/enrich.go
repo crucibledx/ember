@@ -79,8 +79,10 @@ func (p *emberProcessor) processLogs(ctx context.Context, logs plog.Logs) error 
 }
 
 func (p *emberProcessor) processLog(ctx context.Context, adapter harness.Adapter, resource pcommon.Resource, record plog.LogRecord) {
-	at := record.Timestamp().AsTime()
-	if at.IsZero() {
+	at := time.Time{}
+	if record.Timestamp() != 0 {
+		at = record.Timestamp().AsTime()
+	} else if record.ObservedTimestamp() != 0 {
 		at = record.ObservedTimestamp().AsTime()
 	}
 	snapshot, key, ok := p.resolveData(ctx, adapter, record.Attributes(), resource.Attributes(), at)

@@ -91,8 +91,37 @@ func (p *emberProcessor) privacyMetrics(resource pmetric.ResourceMetrics, adapte
 		scope := resource.ScopeMetrics().At(i)
 		p.filter(policy, scope.Scope().Attributes())
 		for j := 0; j < scope.Metrics().Len(); j++ {
-			visitPoints(scope.Metrics().At(j), func(attrs pcommon.Map, _ time.Time) { p.filter(policy, attrs) })
+			metric := scope.Metrics().At(j)
+			visitPoints(metric, func(attrs pcommon.Map, _ time.Time) { p.filter(policy, attrs) })
+			visitExemplars(metric, func(attrs pcommon.Map) { p.filter(policy, attrs) })
 		}
 	}
 	return nil
+}
+
+func visitExemplars(metric pmetric.Metric, visit func(pcommon.Map)) {
+	visitSlice := func(exemplars pmetric.ExemplarSlice) {
+		for i := 0; i < exemplars.Len(); i++ {
+			visit(exemplars.At(i).FilteredAttributes())
+		}
+	}
+	switch metric.Type() {
+	case pmetric.MetricTypeGauge:
+		for i := 0; i < metric.Gauge().DataPoints().Len(); i++ {
+			visitSlice(metric.Gauge().DataPoints().At(i).Exemplars())
+		}
+	case pmetric.MetricTypeSum:
+		for i := 0; i < metric.Sum().DataPoints().Len(); i++ {
+			visitSlice(metric.Sum().DataPoints().At(i).Exemplars())
+		}
+	case pmetric.MetricTypeHistogram:
+		for i := 0; i < metric.Histogram().DataPoints().Len(); i++ {
+			visitSlice(metric.Histogram().DataPoints().At(i).Exemplars())
+		}
+	case pmetric.MetricTypeExponentialHistogram:
+		for i := 0; i < metric.ExponentialHistogram().DataPoints().Len(); i++ {
+			visitSlice(metric.ExponentialHistogram().DataPoints().At(i).Exemplars())
+		}
+	case pmetric.MetricTypeSummary, pmetric.MetricTypeEmpty:
+	}
 }

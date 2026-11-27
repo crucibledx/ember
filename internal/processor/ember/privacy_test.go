@@ -81,19 +81,19 @@ func TestPrivacy(t *testing.T) {
 		}
 		scopeMetrics := metrics.ResourceMetrics().At(0).ScopeMetrics().At(0)
 		for i := 0; i < scopeMetrics.Metrics().Len(); i++ {
-			visitPoints(scopeMetrics.Metrics().At(i), func(attrs pcommon.Map, _ time.Time) { assertNoSecret(t, attrs, secret) })
+			metric := scopeMetrics.Metrics().At(i)
+			visitPoints(metric, func(attrs pcommon.Map, _ time.Time) { assertNoSecret(t, attrs, secret) })
+			visitExemplars(metric, func(attrs pcommon.Map) { assertNoSecret(t, attrs, secret) })
 		}
 		body, status := getStatus(t, endpoint)
 		if strings.Contains(string(body), secret) {
 			t.Fatal("GET /status leaked a dropped value")
 		}
-		found := false
+		counts := map[string]uint64{}
 		for _, dropped := range status.Dropped {
-			if dropped.Key == "private.resource" && dropped.Count == 1 {
-				found = true
-			}
+			counts[dropped.Key] = dropped.Count
 		}
-		if !found {
+		if counts["private.resource"] != 1 || counts["private.exemplar"] != 4 {
 			t.Fatalf("GET /status dropped = %v", status.Dropped)
 		}
 	})
@@ -294,6 +294,9 @@ func privateMetrics(secret string) pmetric.Metrics {
 	for _, attrs := range []pcommon.Map{gauge.Attributes(), sum.Attributes(), histogram.Attributes(), exponential.Attributes(), summary.Attributes()} {
 		attrs.PutStr("session.id", "run")
 		attrs.PutStr("private.point", secret)
+	}
+	for _, exemplars := range []pmetric.ExemplarSlice{gauge.Exemplars(), sum.Exemplars(), histogram.Exemplars(), exponential.Exemplars()} {
+		exemplars.AppendEmpty().FilteredAttributes().PutStr("private.exemplar", secret)
 	}
 	return metrics
 }

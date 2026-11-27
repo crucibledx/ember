@@ -78,6 +78,9 @@ func TestEnrich(t *testing.T) {
 		segment := records.AppendEmpty()
 		segment.Attributes().PutStr("session.id", "run")
 		segment.SetTimestamp(pcommon.NewTimestampFromTime(testBase.Add(11 * time.Minute)))
+		observed := records.AppendEmpty()
+		observed.Attributes().PutStr("session.id", "run")
+		observed.SetObservedTimestamp(pcommon.NewTimestampFromTime(testBase.Add(11 * time.Minute)))
 		existing := records.AppendEmpty()
 		existing.Attributes().PutStr("session.id", "run")
 		existing.SetTraceID(testTrace(88))
@@ -93,6 +96,9 @@ func TestEnrich(t *testing.T) {
 		}
 		if segment.TraceID() != wantTrace || segment.SpanID() != wantSegment {
 			t.Fatalf("segment log ids = %s/%s want %s", segment.TraceID(), segment.SpanID(), wantSegment)
+		}
+		if observed.TraceID() != wantTrace || observed.SpanID() != wantSegment {
+			t.Fatalf("observed-only log ids = %s/%s want %s/%s", observed.TraceID(), observed.SpanID(), wantTrace, wantSegment)
 		}
 		if existing.TraceID() != testTrace(88) || existing.SpanID() != testSpan(77) {
 			t.Fatal("existing log ids changed")
