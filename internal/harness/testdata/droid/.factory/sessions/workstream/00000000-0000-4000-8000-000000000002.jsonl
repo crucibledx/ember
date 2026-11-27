@@ -1,0 +1,7 @@
+{"type":"session_start","id":"00000000-0000-4000-8000-000000000002","title":"TOP-SECRET-PROMPT-TEXT","cwd":"/workspace/agent","callingSessionId":"00000000-0000-4000-8000-000000000001","owner":"owner-1","hostId":"host-1"}
+{"type":"message","id":"m2user","timestamp":"2026-11-11T10:02:00Z","message":{"role":"user","content":[{"type":"text","text":"TOP-SECRET-PROMPT-TEXT"}]}}
+{"type":"message","id":"m3assistant","timestamp":"2026-11-11T10:03:00Z","message":{"role":"assistant","modelId":"model-x","content":[{"type":"tool_use","id":"toolu_read","name":"Read","input":{"path":"/secret/path/TOP-SECRET-PROMPT-TEXT"}},{"type":"tool_use","id":"toolu_task","name":"Task","input":{"prompt":"TOP-SECRET-PROMPT-TEXT","subagent_type":"worker"}}]}}
+{"type":"message","id":"m4user","timestamp":"2026-11-11T10:04:00Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_read","is_error":true,"content":"TOP-SECRET-PROMPT-TEXT"}]}}
+{"type":"message","id":"m9user","timestamp":"2026-11-11T10:09:00Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_task","content":"TOP-SECRET-PROMPT-TEXT"}]}}
+not json at all
+{"type":"message","timestamp":"not-a-time","message":{"role":"assistant","content":[{"type":"text","text":"TOP-SECRET-PROMPT-TEXT"}]}}
