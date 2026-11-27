@@ -17,16 +17,16 @@ type fakeSource struct {
 	block chan struct{}
 }
 
-func (s *fakeSource) Resolve(ctx context.Context, key Key, after time.Time) (harness.Run, error) {
+func (s *fakeSource) Resolve(ctx context.Context, key Key, after time.Time) (Snapshot, error) {
 	s.calls.Add(1)
 	if s.block != nil {
 		select {
 		case <-s.block:
 		case <-ctx.Done():
-			return harness.Run{}, ctx.Err()
+			return Snapshot{}, ctx.Err()
 		}
 	}
-	return harness.Run{Harness: key.Harness, SessionID: key.RunID, StartedAt: time.Now()}, nil
+	return Snapshot{Run: harness.Run{Harness: key.Harness, SessionID: key.RunID, StartedAt: time.Now()}, TraceID: "trace", RootKey: "root", WorkID: "work"}, nil
 }
 func TestRegistryCopiesAndStatus(t *testing.T) {
 	r := New()

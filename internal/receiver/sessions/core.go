@@ -28,8 +28,10 @@ type core struct {
 	metrics     consumer.Metrics
 	logs        consumer.Logs
 	now         func() time.Time
+	log         *zap.Logger
 	mu          sync.Mutex
 	home        string
+	userHome    string
 	state       *diskState
 	metricState emit.MetricsState
 	startup     bool
@@ -39,104 +41,121 @@ func newCore(config *Config, adapters []harness.Adapter) *core {
 	if adapters == nil {
 		adapters = harness.Adapters()
 	}
-	return &core{config: config, adapters: adapters, now: time.Now}
+	return &core{config: config, adapters: adapters, now: time.Now, log: zap.NewNop()}
 }
-func (c *core) logger() *zap.Logger { return zap.NewNop() }
+func (c *core) logger() *zap.Logger { return c.log }
 func (c *core) start(home string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.home = home
-	c.state = loadState(home)
+	state, err := loadState(home)
+	if err != nil {
+		return err
+	}
+	if c.userHome == "" {
+		c.userHome = home
+	}
+	c.state = state
 	c.startup = true
 	c.restore()
-	return c.rescan()
+	c.rescan()
+	return nil
 }
 func (c *core) restore() {
 	for id, s := range c.state.Runs {
-		key := registry.Key{Harness: s.Run.Harness, RunID: id}
+		key := registry.Key{Harness: s.Run.Harness, RunID: s.Run.SessionID}
 		for _, call := range s.Tools {
 			c.registry.RestoreFile(key, call, registry.SpanRef{})
 		}
-	}
-	for id, at := range c.state.Native {
-		if s := c.state.Runs[id]; s != nil {
-			c.registry.NoteNative(registry.Key{Harness: s.Run.Harness, RunID: id}, at)
+		for call, nativeID := range s.NativeTools {
+			c.registry.RestoreNativeTool(key, call, nativeID)
+		}
+		if at, ok := c.state.Native[id]; ok {
+			c.registry.RestoreNativeFirst(key, at)
+		}
+		if at, ok := c.state.NativeLast[id]; ok {
+			c.registry.RestoreNativeLast(key, at)
 		}
 	}
 }
-func (c *core) rescan() error {
+func (c *core) rescan() {
 	if c.config.Rescan == 0 {
-		return nil
+		return
 	}
 	now := c.now()
-	for id, s := range c.state.Runs {
+	for _, s := range c.state.Runs {
 		if now.Sub(tree.LastRecord(s.Run)) <= c.config.Rescan {
 			s.LastSegment = 0
+			s.EmittedSegments = nil
 			s.Tools = nil
 			s.LogTime = time.Time{}
 			s.LogOrdinal = 0
+			s.AcceptedLogs = nil
 			s.FinalMetrics = false
 		}
-		_ = id
 	}
-	return nil
 }
+func (c *core) lookback() time.Duration { return max(c.config.Lookback, c.config.Rescan) }
 func (c *core) Poll(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.state == nil {
-		c.state = loadState(c.home)
+		state, err := loadState(c.home)
+		if err != nil {
+			return err
+		}
+		c.state = state
 		c.restore()
 	}
 	now := c.now()
 	refs, discoverErr := c.discover()
-	var parseErr error
+	errs := []error{discoverErr}
 	seen := map[string]bool{}
 	for _, item := range refs {
-		if seen[item.ref.RunID] {
+		key := stateKey(item.adapter.Name(), item.ref.RunID)
+		if seen[key] {
 			continue
 		}
-		seen[item.ref.RunID] = true
-		changed := c.changed(item.ref)
-		if !changed {
+		seen[key] = true
+		if !c.changed(item.adapter, item.ref) {
 			continue
 		}
-		run, err := item.adapter.Parse(os.DirFS(c.home), item.ref)
+		run, err := item.adapter.Parse(os.DirFS(c.userHome), item.ref)
 		if err != nil {
-			parseErr = err
+			errs = append(errs, fmt.Errorf("parse %s session %s: %w", item.adapter.Name(), item.ref.RunID, err))
 			continue
 		}
-		state := c.state.Runs[run.SessionID]
+		state := c.state.Runs[stateKey(run.Harness, run.SessionID)]
 		if state == nil {
 			state = &runState{}
-			c.state.Runs[run.SessionID] = state
+			c.state.Runs[stateKey(run.Harness, run.SessionID)] = state
 		}
 		state.Files, state.Run = c.fileStates(item.ref), run
 	}
 	c.applyParents()
 	forest := c.forest(now)
 	c.publish(forest)
-	var consumeErr error
 	if c.traces != nil {
-		consumeErr = c.emitTraces(ctx, forest, now)
+		errs = append(errs, c.emitTraces(ctx, forest, now))
 	}
 	if c.logs != nil {
-		if err := c.emitLogs(ctx, forest, now); err != nil {
-			consumeErr = err
-		}
+		errs = append(errs, c.emitLogs(ctx, forest, now))
 	}
 	if c.metrics != nil {
-		if err := c.emitMetrics(ctx, forest, now); err != nil {
-			consumeErr = err
-		}
+		errs = append(errs, c.emitMetrics(ctx, forest, now))
 	}
 	for id, state := range c.state.Runs {
-		if at, ok := c.registry.NativeFirst(registry.Key{Harness: state.Run.Harness, RunID: id}); ok {
+		key := registry.Key{Harness: state.Run.Harness, RunID: state.Run.SessionID}
+		if at, ok := c.registry.NativeFirst(key); ok {
 			c.state.Native[id] = at
 		}
+		if at, ok := c.registry.NativeLast(key); ok {
+			c.state.NativeLast[id] = at
+		}
+		state.NativeTools = c.registry.NativeCalls(key)
 	}
-	saveErr := saveState(c.home, c.state)
-	return errors.Join(discoverErr, parseErr, consumeErr, saveErr)
+	errs = append(errs, saveState(c.home, c.state))
+	return errors.Join(errs...)
 }
 
 type discovered struct {
@@ -147,11 +166,11 @@ type discovered struct {
 func (c *core) discover() ([]discovered, error) {
 	var out []discovered
 	var errs []error
-	env := harness.Env{Home: c.home, FS: os.DirFS(c.home), OS: runtime.GOOS}
+	env := harness.Env{Home: c.userHome, FS: os.DirFS(c.userHome), OS: runtime.GOOS}
 	for _, adapter := range c.adapters {
 		refs, err := adapter.Sessions(env)
 		if err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("discover %s sessions: %w", adapter.Name(), err))
 			continue
 		}
 		for _, ref := range refs {
@@ -163,14 +182,14 @@ func (c *core) discover() ([]discovered, error) {
 func (c *core) fileStates(ref harness.SessionRef) map[string]fileState {
 	out := map[string]fileState{}
 	for _, name := range ref.Files {
-		if info, err := fs.Stat(os.DirFS(c.home), name); err == nil {
+		if info, err := fs.Stat(os.DirFS(c.userHome), name); err == nil {
 			out[name] = fileState{Size: info.Size(), ModTime: info.ModTime()}
 		}
 	}
 	return out
 }
-func (c *core) changed(ref harness.SessionRef) bool {
-	old := c.state.Runs[ref.RunID]
+func (c *core) changed(adapter harness.Adapter, ref harness.SessionRef) bool {
+	old := c.state.Runs[stateKey(adapter.Name(), ref.RunID)]
 	if old == nil {
 		return true
 	}
@@ -186,13 +205,10 @@ func (c *core) changed(ref harness.SessionRef) bool {
 	return false
 }
 func (c *core) applyParents() {
-	for id, s := range c.state.Runs {
-		key := registry.Key{Harness: s.Run.Harness, RunID: id}
+	for _, s := range c.state.Runs {
+		key := registry.Key{Harness: s.Run.Harness, RunID: s.Run.SessionID}
 		if parent, call, ok := c.registry.Parent(key); ok {
 			s.Run.Parent = &harness.ParentRef{SessionID: parent.RunID, ToolCallID: call}
-			if s.Run.Harness == "" {
-				s.Run.Harness = parent.Harness
-			}
 		}
 	}
 }
@@ -212,42 +228,58 @@ func (c *core) publish(forest *tree.Forest) {
 		for _, call := range node.Run.ToolCalls {
 			spans[call.ID] = registry.SpanRef{TraceID: node.TraceID(), SpanID: tree.ToolSpanID(node.Run.Harness, call.ID)}
 		}
-		c.registry.Put(registry.Snapshot{Run: node.Run, TraceID: node.TraceID(), RootKey: node.RootKey, RootSessionID: node.RootSessionID, WorkID: node.WorkID, Segments: node.Segments, ToolSpans: spans, Idle: node.Idle, LastRecord: tree.LastRecord(node.Run)})
+		c.registry.Put(registry.Snapshot{Run: node.Run, TraceID: node.TraceID(), RootKey: node.RootKey, RootSessionID: node.RootSessionID, WorkID: node.WorkID, Segments: node.Segments, ToolSpans: spans, Idle: node.Idle, LastRecord: tree.LastRecord(node.Run), StartedBy: node.StartedBy, Active: append([]string(nil), node.Active...)})
 	}
 }
-func (c *core) Resolve(ctx context.Context, key registry.Key, after time.Time) (harness.Run, error) {
+func (c *core) Resolve(ctx context.Context, key registry.Key, after time.Time) (registry.Snapshot, error) {
 	_ = ctx
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	s := c.state.Runs[key.RunID]
-	if s != nil && !after.IsZero() && !tree.LastRecord(s.Run).Before(after) {
-		return s.Run, nil
+	id := stateKey(key.Harness, key.RunID)
+	s := c.state.Runs[id]
+	if s == nil || (!after.IsZero() && tree.LastRecord(s.Run).Before(after)) {
+		if err := c.resolveRun(key); err != nil {
+			return registry.Snapshot{}, err
+		}
 	}
-	for _, a := range c.adapters {
-		if a.Name() != key.Harness {
+	c.applyParents()
+	c.publish(c.forest(c.now()))
+	if err := saveState(c.home, c.state); err != nil {
+		return registry.Snapshot{}, err
+	}
+	snapshot, ok := c.registry.Get(key)
+	if !ok {
+		return registry.Snapshot{}, fmt.Errorf("session %s is held or unavailable", key.RunID)
+	}
+	return snapshot, nil
+}
+func (c *core) resolveRun(key registry.Key) error {
+	for _, adapter := range c.adapters {
+		if adapter.Name() != key.Harness {
 			continue
 		}
-		refs, err := a.Sessions(harness.Env{Home: c.home, FS: os.DirFS(c.home), OS: runtime.GOOS})
+		refs, err := adapter.Sessions(harness.Env{Home: c.userHome, FS: os.DirFS(c.userHome), OS: runtime.GOOS})
 		if err != nil {
-			return harness.Run{}, err
+			return err
 		}
 		for _, ref := range refs {
 			if ref.RunID != key.RunID {
 				continue
 			}
-			run, err := a.Parse(os.DirFS(c.home), ref)
-			if err == nil {
-				state := c.state.Runs[key.RunID]
-				if state == nil {
-					state = &runState{}
-					c.state.Runs[key.RunID] = state
-				}
-				state.Files, state.Run = c.fileStates(ref), run
+			run, err := adapter.Parse(os.DirFS(c.userHome), ref)
+			if err != nil {
+				return err
 			}
-			return run, err
+			state := c.state.Runs[stateKey(run.Harness, run.SessionID)]
+			if state == nil {
+				state = &runState{}
+				c.state.Runs[stateKey(run.Harness, run.SessionID)] = state
+			}
+			state.Files, state.Run = c.fileStates(ref), run
+			return nil
 		}
 	}
-	return harness.Run{}, fmt.Errorf("session %s not found", key.RunID)
+	return fmt.Errorf("session %s not found", key.RunID)
 }
 func recent(run harness.Run, now time.Time, lookback time.Duration) bool {
 	return !now.After(tree.LastRecord(run).Add(lookback))

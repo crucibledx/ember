@@ -75,10 +75,18 @@ func BuildForest(runs []harness.Run, options Options) *Forest {
 	}
 	forest := &Forest{Nodes: map[string]*Node{}}
 	ordered := append([]harness.Run(nil), runs...)
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].SessionID < ordered[j].SessionID })
+	sort.Slice(ordered, func(i, j int) bool {
+		return cmp.Or(strings.Compare(ordered[i].SessionID, ordered[j].SessionID), strings.Compare(ordered[i].Harness, ordered[j].Harness)) < 0
+	})
 	for _, run := range ordered {
-		if _, exists := forest.Nodes[run.SessionID]; !exists {
-			forest.Nodes[run.SessionID] = &Node{Run: run}
+		key := run.SessionID
+		if existing := forest.Nodes[key]; existing != nil && existing.Run.Harness != run.Harness {
+			delete(forest.Nodes, key)
+			forest.Nodes[existing.Run.Harness+"/"+existing.Run.SessionID] = existing
+			key = run.Harness + "/" + run.SessionID
+		}
+		if _, exists := forest.Nodes[key]; !exists {
+			forest.Nodes[key] = &Node{Run: run}
 		}
 	}
 	for _, node := range forest.Ordered() {
@@ -108,7 +116,11 @@ func linkParent(forest *Forest, node *Node, roots RootState) {
 	}
 	copyRef := *ref
 	node.Parent = &copyRef
-	if parent := forest.Nodes[ref.SessionID]; parent != nil {
+	parent := forest.Nodes[node.Run.Harness+"/"+ref.SessionID]
+	if parent == nil {
+		parent = forest.Nodes[ref.SessionID]
+	}
+	if parent != nil {
 		if key, ok := roots.RootKey(node.Run.SessionID); ok {
 			node.RootKey, node.Detached = key, true
 			return

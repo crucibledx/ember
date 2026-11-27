@@ -36,10 +36,11 @@ func (e *Extension) Start(_ context.Context, _ component.Host) error {
 	if err != nil {
 		return fmt.Errorf("listen for status: %w", err)
 	}
+	server := &http.Server{Handler: http.HandlerFunc(e.serveHTTP), ReadHeaderTimeout: 5 * time.Second}
 	e.listener = listener
-	e.server = &http.Server{Handler: http.HandlerFunc(e.serveHTTP), ReadHeaderTimeout: 5 * time.Second}
+	e.server = server
 	go func() {
-		if err := e.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			e.settings.Logger.Error("status server stopped", zap.Error(err))
 		}
 	}()

@@ -27,8 +27,10 @@ type sessionReceiver struct {
 	done    chan struct{}
 }
 
-func newSessionReceiver(config *Config) *sessionReceiver {
-	return &sessionReceiver{config: config, core: newCore(config, nil)}
+func newSessionReceiver(config *Config, logger *zap.Logger) *sessionReceiver {
+	core := newCore(config, nil)
+	core.log = logger
+	return &sessionReceiver{config: config, core: core}
 }
 func (r *sessionReceiver) Start(ctx context.Context, host component.Host) error {
 	r.mu.Lock()
@@ -38,12 +40,13 @@ func (r *sessionReceiver) Start(ctx context.Context, host component.Host) error 
 		r.started++
 		return nil
 	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	r.core.userHome = userHome
 	if r.config.Home == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		r.config.Home = filepath.Join(home, ".ember")
+		r.config.Home = filepath.Join(userHome, ".ember")
 	}
 	reg, err := registry.FromHost(host, r.config.Registry)
 	if err != nil {
@@ -58,9 +61,7 @@ func (r *sessionReceiver) Start(ctx context.Context, host component.Host) error 
 	r.cancel = cancel
 	r.done = make(chan struct{})
 	r.started = 1
-	if err = r.core.Poll(pollCtx); err != nil {
-		r.core.logger().Error("initial session poll failed", zap.Error(err))
-	}
+	r.reportPoll(r.core.Poll(pollCtx))
 	go r.loop(pollCtx)
 	return nil
 }
@@ -71,12 +72,15 @@ func (r *sessionReceiver) loop(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			if err := r.core.Poll(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				r.core.logger().Error("session poll failed", zap.Error(err))
-			}
+			r.reportPoll(r.core.Poll(ctx))
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+func (r *sessionReceiver) reportPoll(err error) {
+	if err != nil && !errors.Is(err, context.Canceled) {
+		r.core.logger().Error("session poll failed", zap.Error(err))
 	}
 }
 func (r *sessionReceiver) Shutdown(ctx context.Context) error {
