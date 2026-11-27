@@ -1,6 +1,7 @@
 package emit
 
 import (
+	"cmp"
 	"encoding/hex"
 	"regexp"
 	"strings"
@@ -26,10 +27,7 @@ type Config struct {
 func resourceFor(out pcommon.Resource, node *tree.Node, config Config) {
 	attrs := out.Attributes()
 	putStrings(attrs, "service.name", "ember", "service.version", config.Resource.Version, "service.instance.id", node.Run.SessionID)
-	host := node.Run.HostID
-	if host == "" {
-		host = config.Resource.HostName
-	}
+	host := cmp.Or(node.Run.HostID, config.Resource.HostName)
 	putStrings(attrs, "host.name", host, "os.type", config.Resource.OSType,
 		"host.arch", config.Resource.HostArch, "ember.hash_key.id", config.Resource.HashKeyID)
 }
@@ -72,9 +70,9 @@ func mcpTool(config Config, node *tree.Node, name string) (string, string) {
 	return match[1], match[2]
 }
 func spawnedIDs(ids []string) string { return strings.Join(ids, ",") }
-func runOpen(run harness.Run) bool {
-	return run.Status == harness.StatusRunning && run.EndedAt.IsZero()
+func runOpen(node *tree.Node) bool {
+	return len(node.Segments) != 0 && !node.Segments[len(node.Segments)-1].Closed
 }
-func toolEligible(run harness.Run, call harness.ToolCall) bool {
-	return !runOpen(run) || !call.EndedAt.IsZero()
+func toolEligible(node *tree.Node, call harness.ToolCall) bool {
+	return !runOpen(node) || !call.EndedAt.IsZero()
 }

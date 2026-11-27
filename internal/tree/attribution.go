@@ -1,6 +1,7 @@
 package tree
 
 import (
+	"cmp"
 	"sort"
 	"strings"
 	"time"
@@ -23,9 +24,7 @@ func applyAttribution(node *Node, records []AttributionRecord, fallback string, 
 	if node.StartedBy == "" && node.Run.Owner != "" {
 		node.StartedBy = node.Run.Harness + ":" + node.Run.Owner
 	}
-	if node.StartedBy == "" {
-		node.StartedBy = fallback
-	}
+	node.StartedBy = cmp.Or(node.StartedBy, fallback)
 	active := map[string]bool{}
 	if node.StartedBy != "" {
 		active[node.StartedBy] = true
@@ -49,10 +48,7 @@ func earliestStarted(runID string, records []AttributionRecord) string {
 	return id
 }
 func collectActive(node *Node, records []AttributionRecord, active map[string]bool, now time.Time) {
-	end := node.Run.EndedAt
-	if end.IsZero() {
-		end = now
-	}
+	end := cmp.Or(node.Run.EndedAt, now)
 	for _, record := range records {
 		if record.SessionID == node.Run.SessionID && record.Human != "" &&
 			!record.At.Before(node.Run.StartedAt) && !record.At.After(end) {

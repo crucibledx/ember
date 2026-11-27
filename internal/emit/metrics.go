@@ -97,7 +97,7 @@ func appendToolCalls(metric pmetric.Metric, node *tree.Node, config Config, now 
 	groups := map[string]int64{}
 	attrsByGroup := map[string]pcommon.Map{}
 	for _, call := range node.Run.ToolCalls {
-		if !toolEligible(node.Run, call) {
+		if !toolEligible(node, call) {
 			continue
 		}
 		attrs := pcommon.NewMap()
@@ -122,16 +122,8 @@ func appendToolCalls(metric pmetric.Metric, node *tree.Node, config Config, now 
 	}
 }
 func MetricDue(run harness.Run, now time.Time, idle, lookback time.Duration, startup, finalSent bool) bool {
-	end := run.EndedAt
-	if end.IsZero() {
-		segments := tree.Segments(run, 0, time.Time{})
-		end = segments[len(segments)-1].End
+	if !tree.Terminal(run.Status) && !tree.RunClosed(run, now, idle) {
+		return true
 	}
-	if run.Status == harness.StatusRunning {
-		return !now.After(end.Add(idle)) || startup && !now.After(end.Add(lookback))
-	}
-	if now.After(end.Add(lookback)) {
-		return false
-	}
-	return !finalSent || startup
+	return !now.After(tree.LastRecord(run).Add(lookback)) && (!finalSent || startup)
 }

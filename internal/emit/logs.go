@@ -1,6 +1,7 @@
 package emit
 
 import (
+	"cmp"
 	"fmt"
 	"sort"
 	"time"
@@ -59,7 +60,7 @@ func logEntries(node *tree.Node) []logEntry {
 	}
 	for i := range run.ToolCalls {
 		call := &run.ToolCalls[i]
-		if !toolEligible(run, *call) {
+		if !toolEligible(node, *call) {
 			continue
 		}
 		at := call.EndedAt
@@ -81,6 +82,9 @@ func logEntries(node *tree.Node) []logEntry {
 			spanID: tree.ToolSpanID(run.Harness, call.ID)})
 	}
 	end := run.EndedAt
+	if !tree.Terminal(run.Status) {
+		end = tree.LastRecord(run)
+	}
 	if end.Before(run.StartedAt) {
 		end = run.StartedAt
 	}
@@ -88,7 +92,7 @@ func logEntries(node *tree.Node) []logEntry {
 	if run.Status == harness.StatusFailed {
 		severity = plog.SeverityNumberError
 	}
-	if !runOpen(run) {
+	if !runOpen(node) {
 		entries = append(entries, logEntry{at: end, event: AgentEnded, severity: severity,
 			body:   fmt.Sprintf("agent %s ended: %s, %d tool calls, %d llm turns", agentName(run), run.Status, len(run.ToolCalls), run.LLMTurns),
 			spanID: segmentIDAt(node, end)})
@@ -139,12 +143,7 @@ func appendToolLog(attrs pcommon.Map, call harness.ToolCall) {
 		attrs.PutInt("ember.tool.duration_ms", call.EndedAt.Sub(call.StartedAt).Milliseconds())
 	}
 }
-func agentName(run harness.Run) string {
-	if run.AgentType != "" {
-		return run.AgentType
-	}
-	return string(run.Kind)
-}
+func agentName(run harness.Run) string { return cmp.Or(run.AgentType, string(run.Kind)) }
 func segmentIDAt(node *tree.Node, at time.Time) string {
 	segment, ok := tree.SegmentAt(node.Segments, at, node.Idle)
 	if !ok {

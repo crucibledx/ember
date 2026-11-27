@@ -23,12 +23,10 @@ func (s *MetricsState) Metrics(forest *tree.Forest, config Config, now time.Time
 	if s.high == nil {
 		s.high = map[string]highWater{}
 	}
-	for i := 0; i < out.ResourceMetrics().Len(); i++ {
-		scopes := out.ResourceMetrics().At(i).ScopeMetrics()
-		for j := 0; j < scopes.Len(); j++ {
-			metrics := scopes.At(j).Metrics()
-			for k := 0; k < metrics.Len(); k++ {
-				s.clampMetric(metrics.At(k))
+	for _, resource := range out.ResourceMetrics().All() {
+		for _, scope := range resource.ScopeMetrics().All() {
+			for _, metric := range scope.Metrics().All() {
+				s.clampMetric(metric)
 			}
 		}
 	}

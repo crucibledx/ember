@@ -86,11 +86,11 @@ func readBranch(gitDir string, git GitMetadata) string {
 	if err != nil {
 		return ""
 	}
-	value := strings.TrimSpace(string(head))
-	if strings.HasPrefix(value, "ref: refs/heads/") {
-		return strings.TrimPrefix(value, "ref: refs/heads/")
+	branch, ok := strings.CutPrefix(strings.TrimSpace(string(head)), "ref: refs/heads/")
+	if !ok {
+		return ""
 	}
-	return ""
+	return branch
 }
 func readOrigin(gitDir string, git GitMetadata) string {
 	data, err := git.ReadFile(filepath.Join(gitDir, "config"))

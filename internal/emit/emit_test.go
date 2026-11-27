@@ -36,29 +36,26 @@ func options() tree.Options {
 	return tree.Options{Now: start.Add(3 * time.Minute), Idle: 30 * time.Second}
 }
 func metric(metrics pmetric.Metrics, session, name string) pmetric.Metric {
-	for i := 0; i < metrics.ResourceMetrics().Len(); i++ {
-		resource := metrics.ResourceMetrics().At(i)
+	for _, resource := range metrics.ResourceMetrics().All() {
 		id, _ := resource.Resource().Attributes().Get("service.instance.id")
 		if id.AsString() != session {
 			continue
 		}
-		items := resource.ScopeMetrics().At(0).Metrics()
-		for j := 0; j < items.Len(); j++ {
-			if items.At(j).Name() == name {
-				return items.At(j)
+		for _, item := range resource.ScopeMetrics().At(0).Metrics().All() {
+			if item.Name() == name {
+				return item
 			}
 		}
 	}
 	return pmetric.NewMetric()
 }
 func point(m pmetric.Metric, model, kind string) pmetric.NumberDataPoint {
-	points := m.Sum().DataPoints()
-	for i := 0; i < points.Len(); i++ {
-		attrs := points.At(i).Attributes()
+	for _, point := range m.Sum().DataPoints().All() {
+		attrs := point.Attributes()
 		mv, mok := attrs.Get("gen_ai.request.model")
 		tv, tok := attrs.Get("gen_ai.token.type")
 		if (!mok || mv.AsString() == model) && (!tok || tv.AsString() == kind) {
-			return points.At(i)
+			return point
 		}
 	}
 	return pmetric.NewNumberDataPoint()
@@ -107,15 +104,18 @@ func TestLogs(t *testing.T) {
 	}
 	eq(t, counts, map[string]int{emit.AgentStarted: 2, emit.AgentEnded: 2, emit.LLMTurn: 2, emit.ToolCall: 1})
 	eq(t, []string{failedSeverity, failedBody}, []string{"ERROR", "tool mcp__server__read error 60000ms"})
-	t.Run("running and interrupted eligibility", func(t *testing.T) {
+	t.Run("unknown with last record and interrupted eligibility", func(t *testing.T) {
 		active := run("active")
-		active.Status, active.EndedAt = harness.StatusRunning, time.Time{}
+		active.Harness = "dro" + "id"
+		active.Status, active.EndedAt = harness.StatusUnknown, start
 		active.TurnTimes = []time.Time{start}
 		active.ToolCalls[0].StartedAt, active.ToolCalls[0].EndedAt = start, time.Time{}
 		active.ToolCalls = append(active.ToolCalls, harness.ToolCall{ID: "done", Name: "done", StartedAt: start, EndedAt: start})
-		o := tree.Options{Now: start, Idle: 30 * time.Second}
+		o := tree.Options{Now: start.Add(30 * time.Second), Idle: 30 * time.Second}
 		f := forest(o, active)
 		eq(t, emit.Traces(f, emit.Config{}).SpanCount(), 1)
+		eq(t, metric(emit.Metrics(f, emit.Config{}, o.Now), "active", "ember.tool.calls").Sum().DataPoints().Len(), 1)
+		eq(t, emit.MetricDue(active, o.Now, o.Idle, time.Hour, false, false), true)
 		records := emit.Logs(f, emit.Config{}).ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
 		events := map[string]int{}
 		for i := 0; i < records.Len(); i++ {
@@ -123,11 +123,18 @@ func TestLogs(t *testing.T) {
 			events[event.AsString()]++
 		}
 		eq(t, events, map[string]int{emit.AgentStarted: 1, emit.LLMTurn: 1, emit.ToolCall: 1})
-		active.Status, active.EndedAt = harness.StatusCompleted, start.Add(3*time.Minute)
-		f = forest(options(), active)
-		eq(t, emit.Traces(f, emit.Config{}).SpanCount(), 4)
+		o.Now = start.Add(31 * time.Second)
+		f = forest(o, active)
+		eq(t, emit.Traces(f, emit.Config{}).SpanCount(), 3)
+		eq(t, metric(emit.Metrics(f, emit.Config{}, o.Now), "active", "ember.tool.calls").Sum().DataPoints().Len(), 2)
 		records = emit.Logs(f, emit.Config{}).ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
 		eq(t, records.Len(), 5)
+		ended := records.At(records.Len() - 1)
+		eq(t, ended.Timestamp(), pcommon.Timestamp(start.UnixNano()))
+		status, _ := ended.Attributes().Get("ember.agent.status")
+		eq(t, status.AsString(), string(harness.StatusUnknown))
+		eq(t, emit.MetricDue(active, o.Now, o.Idle, time.Hour, false, false), true)
+		eq(t, emit.MetricDue(active, o.Now, o.Idle, time.Hour, false, true), false)
 	})
 }
 func TestMetrics(t *testing.T) {
@@ -162,57 +169,64 @@ func TestMetrics(t *testing.T) {
 	eq(t, tool.StartTimestamp(), pcommon.Timestamp(start.UnixNano()))
 	eq(t, tool.Attributes().AsRaw(), map[string]any{"session.id": "one", "ember.harness": "test-harness", "gen_ai.tool.name": "mcp__server__read", "ember.mcp.server": "server", "ember.mcp.tool": "read", "error.type": "tool_error", "ember.workstream.id": "w", "ember.work.id": "w"})
 	namer := otlptranslator.NewMetricNamer("", otlptranslator.UnderscoreEscapingWithSuffixes)
-	for name, want := range map[string]string{"ember.lineage": "ember_lineage", "ember.usage.tokens": "ember_usage_tokens_total", "ember.usage.credits": "ember_usage_credits_total", "ember.tool.calls": "ember_tool_calls_total"} {
+	for name, want := range map[string][2]string{
+		"ember.lineage": {"ember_lineage", ""}, "ember.usage.tokens": {"ember_usage_tokens_total", "{token}"},
+		"ember.usage.credits": {"ember_usage_credits_total", "{credit}"}, "ember.tool.calls": {"ember_tool_calls_total", "{call}"},
+	} {
 		m := metric(metrics, "one", name)
-		var kind otlptranslator.MetricType = otlptranslator.MetricTypeMonotonicCounter
+		eq(t, m.Unit(), want[1])
+		kind := otlptranslator.MetricType(otlptranslator.MetricTypeMonotonicCounter)
 		if m.Type() == pmetric.MetricTypeGauge {
 			kind = otlptranslator.MetricTypeGauge
+		} else {
+			eq(t, m.Sum().AggregationTemporality(), pmetric.AggregationTemporalityCumulative)
+			eq(t, m.Sum().IsMonotonic(), true)
 		}
 		got, err := namer.Build(otlptranslator.Metric{Name: m.Name(), Unit: m.Unit(), Type: kind})
 		eq(t, err, nil)
-		eq(t, got, want)
+		eq(t, got, want[0])
 	}
 	t.Run("state clamps resets retains unknown and stabilizes tools", func(t *testing.T) {
 		state := &emit.MetricsState{}
 		before := run("state")
-		before.Usage = map[string]harness.Usage{"unknown": {Input: 10, Credits: 2}}
-		eq(t, point(metric(state.Metrics(forest(options(), before), config, start), "state", "ember.usage.tokens"), "unknown", "input").IntValue(), int64(10))
+		before.Usage = map[string]harness.Usage{"unknown": {Input: 10, Output: 9, CacheRead: 8, CacheWrite: 7, Credits: 2}}
+		state.Metrics(forest(options(), before), config, start)
 		after := before
-		after.Model = "new-model"
-		after.Usage = map[string]harness.Usage{"unknown": {Input: 5, Credits: 1}}
-		reset := state.Metrics(forest(options(), after), config, start.Add(time.Minute))
-		eq(t, point(metric(reset, "state", "ember.usage.tokens"), "unknown", "input").IntValue(), int64(10))
-		eq(t, point(metric(reset, "state", "ember.usage.credits"), "unknown", "").DoubleValue(), float64(2))
+		after.Usage = map[string]harness.Usage{"unknown": {Input: 5, Output: 4, CacheRead: 3, CacheWrite: 2, Credits: 1}}
+		after.ToolCalls = nil
 		eq(t, emit.MetricDue(after, start.Add(1000*time.Hour), time.Minute, time.Hour, false, false), false)
+		reset := state.Metrics(forest(options(), after), config, start.Add(time.Minute))
+		for kind, want := range map[string]int64{"input": 10, "output": 9, "cache_read": 8, "cache_write": 7} {
+			eq(t, point(metric(reset, "state", "ember.usage.tokens"), "unknown", kind).IntValue(), want)
+		}
+		eq(t, point(metric(reset, "state", "ember.usage.credits"), "unknown", "").DoubleValue(), float64(2))
+		eq(t, metric(reset, "state", "ember.tool.calls").Sum().DataPoints().Len(), 0)
 		after.Usage = map[string]harness.Usage{"unknown": {Input: 20, Credits: 3}}
+		after.ToolCalls = before.ToolCalls
 		later := state.Metrics(forest(options(), after), config, start.Add(4*time.Minute))
 		eq(t, point(metric(later, "state", "ember.usage.tokens"), "unknown", "input").IntValue(), int64(20))
 		eq(t, point(metric(later, "state", "ember.usage.credits"), "unknown", "").DoubleValue(), float64(3))
+		calls := metric(later, "state", "ember.tool.calls").Sum().DataPoints()
+		eq(t, calls.Len(), 1)
+		eq(t, calls.At(0).IntValue(), int64(1))
 		active := before
 		active.Status, active.EndedAt = harness.StatusRunning, time.Time{}
 		active.ToolCalls[0].EndedAt = time.Time{}
-		eq(t, metric(state.Metrics(forest(options(), active), config, start), "state", "ember.tool.calls").Sum().DataPoints().Len(), 0)
-		active.Status, active.EndedAt, active.ToolCalls[0].EndedAt = harness.StatusCompleted, start.Add(2*time.Minute), start.Add(2*time.Minute)
-		calls := metric(state.Metrics(forest(options(), active), config, start), "state", "ember.tool.calls").Sum().DataPoints()
-		eq(t, calls.Len(), 1)
-		eq(t, calls.At(0).IntValue(), int64(1))
+		eq(t, metric(state.Metrics(forest(tree.Options{Now: start.Add(time.Minute), Idle: 30 * time.Second}, active), config, start), "state", "ember.tool.calls").Sum().DataPoints().Len(), 0)
 	})
 	t.Run("schedule and golden", func(t *testing.T) {
 		active := run("one")
 		active.Status, active.EndedAt = harness.StatusRunning, time.Time{}
 		for _, tc := range []struct {
-			name                 string
 			run                  harness.Run
 			now                  time.Time
 			startup, final, want bool
 		}{
-			{"active", active, start.Add(time.Minute), false, false, true}, {"idle", active, start.Add(time.Hour), false, false, false},
-			{"close", run("one"), start.Add(time.Hour), false, false, true}, {"closed", run("one"), start.Add(time.Hour), false, true, false},
-			{"old unsent", run("one"), start.Add(1000 * time.Hour), false, false, false}, {"old startup", run("one"), start.Add(1000 * time.Hour), true, false, false},
+			{active, start.Add(time.Minute), false, false, true}, {active, start.Add(time.Hour), false, false, true},
+			{run("one"), start.Add(time.Hour), false, false, true}, {run("one"), start.Add(time.Hour), false, true, false},
+			{run("one"), start.Add(1000 * time.Hour), false, false, false}, {run("one"), start.Add(1000 * time.Hour), true, false, false},
 		} {
-			t.Run(tc.name, func(t *testing.T) {
-				eq(t, emit.MetricDue(tc.run, tc.now, 30*time.Minute, 168*time.Hour, tc.startup, tc.final), tc.want)
-			})
+			eq(t, emit.MetricDue(tc.run, tc.now, 30*time.Minute, 168*time.Hour, tc.startup, tc.final), tc.want)
 		}
 		expected, err := golden.ReadMetrics("testdata/lineage.json")
 		eq(t, err, nil)

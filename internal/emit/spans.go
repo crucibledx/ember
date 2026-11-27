@@ -1,6 +1,8 @@
 package emit
 
 import (
+	"cmp"
+
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
 	"github.com/crucibledx/ember/internal/harness"
@@ -24,7 +26,7 @@ func Traces(forest *tree.Forest, config Config) ptrace.Traces {
 			}
 		}
 		for _, call := range node.Run.ToolCalls {
-			if len(node.Segments) != 0 && toolEligible(node.Run, call) {
+			if len(node.Segments) != 0 && toolEligible(node, call) {
 				appendTool(spans.Spans().AppendEmpty(), node, call, config)
 			}
 		}
@@ -40,10 +42,7 @@ func appendSegment(span ptrace.Span, node *tree.Node, segment tree.Segment) {
 	} else if segment.Number > 1 {
 		span.SetParentSpanID(spanID(tree.SessionSpanID(run.Harness, run.SessionID)))
 	}
-	name := run.AgentType
-	if name == "" {
-		name = string(run.Kind)
-	}
+	name := cmp.Or(run.AgentType, string(run.Kind))
 	span.SetName("invoke_agent " + name)
 	span.SetKind(ptrace.SpanKindInternal)
 	span.SetStartTimestamp(timestamp(segment.Start))
@@ -76,7 +75,7 @@ func appendTool(span ptrace.Span, node *tree.Node, call harness.ToolCall, config
 	span.SetStartTimestamp(timestamp(call.StartedAt))
 	end := call.EndedAt
 	if end.IsZero() {
-		end = run.EndedAt
+		end = tree.LastRecord(run)
 	}
 	if end.Before(call.StartedAt) {
 		end = call.StartedAt

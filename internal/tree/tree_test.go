@@ -76,9 +76,10 @@ func TestForest(t *testing.T) {
 		eq(t, ptracetest.CompareTraces(combined, split), nil)
 		eq(t, ptracetest.CompareTraces(combined, emit.Traces(tree.BuildForest(runs, options()), emit.Config{})), nil)
 		eq(t, spansOf(combined)[tree.ToolSpanID("test-harness", "task")].ParentSpanID().String(), tree.SessionSpanID("test-harness", "agent"))
-		runs[0].StartedAt, runs[0].EndedAt = start.Add(-1000*time.Hour), start.Add(-1000*time.Hour)
+		runs[1].StartedAt, runs[1].EndedAt = start.Add(-1000*time.Hour), start.Add(-1000*time.Hour)
+		runs[1].ToolCalls[0].StartedAt, runs[1].ToolCalls[0].EndedAt = runs[1].StartedAt, runs[1].EndedAt
 		eq(t, tree.BuildForest(runs, options()).Nodes["child"].TraceID(), tree.TraceID("workstream/w"))
-		eq(t, emit.MetricDue(runs[0], start, time.Minute, time.Hour, false, false), false)
+		eq(t, emit.MetricDue(runs[1], start, time.Minute, time.Hour, false, false), false)
 		eq(t, emit.MetricDue(runs[2], start, time.Minute, time.Hour, false, false), true)
 	})
 	t.Run("held subtree and pinned descendants", func(t *testing.T) {

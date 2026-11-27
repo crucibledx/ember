@@ -30,10 +30,19 @@ func Segments(run harness.Run, idle time.Duration, now time.Time) []Segment {
 		}
 	}
 	for i := range result {
-		result[i].Closed = i < len(result)-1 || !run.EndedAt.IsZero() || now.After(result[i].End.Add(idle))
+		result[i].Closed = i < len(result)-1 || RunClosed(run, now, idle)
 		result[i].LLMTurns, result[i].ToolCalls = segmentCounts(run, result[i])
 	}
 	return result
+}
+func Terminal(status harness.RunStatus) bool {
+	return status == harness.StatusCompleted || status == harness.StatusCancelled || status == harness.StatusFailed
+}
+func LastRecord(run harness.Run) time.Time {
+	return slices.MaxFunc(recordTimes(run), time.Time.Compare)
+}
+func RunClosed(run harness.Run, now time.Time, idle time.Duration) bool {
+	return Terminal(run.Status) || now.After(LastRecord(run).Add(idle))
 }
 func recordTimes(run harness.Run) []time.Time {
 	times := append([]time.Time{run.StartedAt}, run.TurnTimes...)
@@ -68,6 +77,5 @@ func SegmentAt(segments []Segment, at time.Time, idle time.Duration) (Segment, b
 			return segment, true
 		}
 	}
-	last := segments[len(segments)-1]
-	return Segment{Number: last.Number + 1, Start: at, End: at}, true
+	return Segment{Number: segments[len(segments)-1].Number + 1, Start: at, End: at}, true
 }

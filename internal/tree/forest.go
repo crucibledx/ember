@@ -1,6 +1,7 @@
 package tree
 
 import (
+	"cmp"
 	"maps"
 	"slices"
 	"sort"
@@ -95,10 +96,7 @@ func BuildForest(runs []harness.Run, options Options) *Forest {
 		holdDescendants(node, forest)
 	}
 	for _, root := range forest.Roots {
-		rootSession := root.RootSessionID
-		if rootSession == "" {
-			rootSession = root.Run.SessionID
-		}
+		rootSession := cmp.Or(root.RootSessionID, root.Run.SessionID)
 		assignLineage(root, root.RootKey, rootSession, "", options)
 	}
 	return forest
@@ -174,11 +172,8 @@ func assignLineage(node *Node, root, rootSession, inheritedWS string, options Op
 		node.WorkID = rootSession
 	}
 	applyAttribution(node, options.Attribution, options.DefaultHuman, options.Now)
-	sort.Slice(node.Children, func(i, j int) bool {
-		if node.Children[i].Run.StartedAt.Equal(node.Children[j].Run.StartedAt) {
-			return node.Children[i].Run.SessionID < node.Children[j].Run.SessionID
-		}
-		return node.Children[i].Run.StartedAt.Before(node.Children[j].Run.StartedAt)
+	slices.SortFunc(node.Children, func(a, b *Node) int {
+		return cmp.Or(a.Run.StartedAt.Compare(b.Run.StartedAt), strings.Compare(a.Run.SessionID, b.Run.SessionID))
 	})
 	for _, child := range node.Children {
 		assignLineage(child, node.RootKey, node.RootSessionID, node.WorkstreamID, options)
