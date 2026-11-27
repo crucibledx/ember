@@ -210,8 +210,13 @@ func (c *core) updateRun(run harness.Run, files map[string]fileState) {
 	if state == nil {
 		state = &runState{}
 		c.state.Runs[id] = state
-	} else if state.FinalMetrics && runSupersedes(state.Run, run) {
-		state.FinalMetrics = false
+	} else {
+		if run.Owner == "" {
+			run.Owner = state.Run.Owner
+		}
+		if state.FinalMetrics && runSupersedes(state.Run, run) {
+			state.FinalMetrics = false
+		}
 	}
 	state.Files, state.Run = files, run
 }
