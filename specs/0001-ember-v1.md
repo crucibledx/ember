@@ -541,10 +541,10 @@ Queries use only §7's Prometheus names and adapters' `Mapping.Metrics`.
 | M2 (about 2 days after M1) | new issues: Claude Code adapter; human attribution; gateway | AC-32 to AC-38 |
 | M3 (about 2 days after M2, plus Nazar's release tag): v0.1.0 | new issues: local stack; install scripts and release; README; web serves the scripts | AC-39 to AC-43 |
 
-Estimates are in calendar days and follow "Estimating work" in `crucibledx/hq` `docs/workstream.md`; the only
-outside wait is Nazar's release tag for M3. Every PR stays under about 1,500 changed lines. After merge the
-orchestrator opens the M2 and M3 issues with their rows. `CHANGELOG.md` starts at v0.1.0. Until then commits are
-`docs: ...` or `chore: ...`.
+Estimates are calendar days, counting about half a day per dependency step for the maintainer's merge and a full
+day per spec step, and weeks only for a named outside wait (here: the M3 release tag). Every PR stays under about
+1,500 changed lines. After merge the orchestrator opens the M2 and M3 issues with their rows. `CHANGELOG.md` starts
+at v0.1.0. Until then commits are `docs: ...` or `chore: ...`.
 
 ## Open questions
 
