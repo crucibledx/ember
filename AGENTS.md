@@ -82,11 +82,13 @@ Three layers, as in forge-cli:
   it.
 - **E2E:** `e2e/commands/<command>_test.go` runs the real binary against temp directories: at least one success and
   one failure case (exit code and message) per command. Each e2e package's `TestMain` builds the binary once with
-  `e2e/harness.Build`, and `Run` gives every call a fresh `HOME`. Everything under `e2e/` has the `e2e` build tag and
+  `e2e/harness.Build`; tests pass `t.TempDir()` to `Run`, which makes it the binary's `HOME` and working directory and passes
+  on no other environment except `PATH`. Everything under `e2e/` has the `e2e` build tag and
   runs with `make e2e`, which always reruns (the test cache cannot see the binary change); lint and vet include it.
 
-`make lint` also enforces the layout: `depguard` keeps I/O, cobra, collector wiring and adapter imports out of the
-context packages listed in `.golangci.yml` (add a new context package there), and `funlen` limits functions to 80
+`make lint` also enforces the layout: `depguard` keeps I/O, cobra, collector component APIs and adapter or tooling
+imports out of the context packages listed in `.golangci.yml` (add a new context package to `files` there, and a new
+adapter or tooling package to `deny`), and `funlen` limits functions to 80
 lines outside tests. Files stay under about 300 lines (500 at most, tests 800); split them along domain concepts.
 
 ## Library first
@@ -110,8 +112,7 @@ result, maintenance, and cost in binary size. Candidates already picked for the 
   notes, roadmaps and unmerged drafts (including the Forge manifest Ember plans to read) are input, not decisions.
 - This repo is public: docs, specs, PR bodies and code comments state a rule inline instead of linking or naming a
   document from a private repo.
-- Run `make check` before every push (details in the loop contract): `golangci-lint run`, `go vet ./...`,
-  `go test -race ./...`, `go build ./...` and the e2e tests. The org Bun CI does not apply here.
+- Run `make check` before every push (targets in Tasks above, details in the loop contract). The org Bun CI does not apply here.
 - A collector component is added or bumped in `builder-config.yaml`, then `make generate`; never with
   `go get` alone. All component versions come from one upstream release.
 

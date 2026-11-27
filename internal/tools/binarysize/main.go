@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,7 +21,8 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// run returns 0 when every file is within the limit, 1 when one is over it or missing, and 2 for bad arguments.
+// run returns 0 when every file is within the limit, 1 when one is over it or missing, and 2 for bad arguments
+// (`go run` itself then exits 1).
 func run(args []string, stdout, stderr io.Writer) int {
 	report, withinLimit, err := check(args)
 	if err != nil {
@@ -48,6 +50,11 @@ func check(args []string) (string, bool, error) {
 	withinLimit := true
 	for _, file := range args[1:] {
 		info, err := os.Stat(file)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintf(&report, "FAIL %v\n", err)
+			withinLimit = false
+			continue
+		}
 		if err != nil || !info.Mode().IsRegular() {
 			fmt.Fprintf(&report, "FAIL %s is missing\n", file)
 			withinLimit = false
