@@ -31,7 +31,7 @@ func TestDroidAdapterConformance(t *testing.T) {
 
 func TestDroidSessions(t *testing.T) {
 	adapter := droidAdapterUnderTest(t)
-	refs, err := adapter.Sessions(harness.Env{Home: "testdata/droid"})
+	refs, err := adapter.Sessions(droidFixtureEnv())
 	if err != nil {
 		t.Fatalf("Sessions(): %v", err)
 	}
@@ -126,6 +126,23 @@ func TestDroidParse(t *testing.T) {
 			t.Errorf("unexpected model, turns or metadata: %+v", run)
 		}
 	})
+	t.Run("null assistant content is skipped", func(t *testing.T) {
+		run := droidParseSynthetic(t, `{"type":"message","timestamp":"2026-11-11T10:00:00Z","message":{"role":"assistant","modelId":"bad-model","content":null}}
+{"type":"message","timestamp":"2026-11-11T10:01:00Z","message":{"role":"user","content":[]}}
+`, `{}`)
+		if run.LLMTurns != 0 || len(run.TurnTimes) != 0 || run.Model != "" {
+			t.Errorf("null-content assistant changed turns or model: %+v", run)
+		}
+	})
+
+	t.Run("first mission tag wins", func(t *testing.T) {
+		settings := `{"tags":[{"name":"mission-v2","metadata":{"kind":"agent","missionId":"w-first"}},{"name":"mission-v2","metadata":{"kind":"orchestrator","missionId":"w-second"}}]}`
+		run := droidParseSynthetic(t, `{"type":"message","timestamp":"2026-11-11T10:00:00Z","message":{"role":"user","content":[]}}
+`, settings)
+		if run.Kind != harness.KindAgent || run.WorkstreamID != "w-first" {
+			t.Errorf("duplicate mission tags produced kind %s, workstream %s", run.Kind, run.WorkstreamID)
+		}
+	})
 }
 
 func TestDroidParseNoContent(t *testing.T) {
@@ -197,6 +214,7 @@ func TestDroidSetup(t *testing.T) {
 		commandCalled := false
 		detection := adapter.Detect(harness.Env{
 			Home:     "testdata/droid",
+			FS:       os.DirFS("testdata/droid"),
 			LookPath: func(string) (string, error) { return "", errors.New("not installed") },
 			Command: func(context.Context, string, ...string) (string, error) {
 				commandCalled = true
@@ -235,6 +253,25 @@ func TestDroidSetup(t *testing.T) {
 			}
 		}
 	})
+	t.Run("Setup leaves content enabled", func(t *testing.T) {
+		for _, factoryApp := range []bool{false, true} {
+			changes := adapter.Setup(harness.Env{Home: t.TempDir()}, harness.SetupOptions{
+				ListenHTTP: "127.0.0.1:4318", FactoryApp: factoryApp, Content: true,
+			})
+			wantCount := 2
+			if factoryApp {
+				wantCount = 4
+			}
+			if len(changes) != wantCount {
+				t.Errorf("Setup(Content=true, FactoryApp=%t) returned %d changes, want %d", factoryApp, len(changes), wantCount)
+			}
+			for _, change := range changes {
+				if change.Key == "OTEL_LOG_MESSAGE_CONTENT" {
+					t.Errorf("Setup(Content=true, FactoryApp=%t) changed content: %+v", factoryApp, change)
+				}
+			}
+		}
+	})
 
 	t.Run("Mapping", func(t *testing.T) {
 		mapping := adapter.Mapping()
@@ -259,9 +296,15 @@ func TestDroidSetup(t *testing.T) {
 		if mapping.MCP == nil {
 			t.Fatal("Mapping().MCP is nil")
 		}
-		match := mapping.MCP.FindStringSubmatch("server___tool")
-		if !reflect.DeepEqual(match, []string{"server___tool", "server", "tool"}) {
+		if mapping.MCP.String() != "^(.+?)___(.+)$" {
+			t.Errorf("MCP regex = %q", mapping.MCP.String())
+		}
+		match := mapping.MCP.FindStringSubmatch("server___tool___extra")
+		if !reflect.DeepEqual(match, []string{"server___tool___extra", "server", "tool___extra"}) {
 			t.Errorf("MCP match = %v", match)
+		}
+		if mapping.MCP.MatchString("server_tool") {
+			t.Error("MCP regex matched a name without a separator")
 		}
 	})
 }
@@ -278,17 +321,39 @@ func droidAdapterUnderTest(t *testing.T) harness.Adapter {
 func droidFixtureRuns(t *testing.T) map[string]harness.Run {
 	t.Helper()
 	adapter := droidAdapterUnderTest(t)
-	refs, err := adapter.Sessions(harness.Env{Home: "testdata/droid"})
+	env := droidFixtureEnv()
+	refs, err := adapter.Sessions(env)
 	if err != nil {
 		t.Fatalf("Sessions(): %v", err)
 	}
 	runs := map[string]harness.Run{}
 	for _, ref := range refs {
-		run, err := adapter.Parse(os.DirFS("testdata/droid"), ref)
+		run, err := adapter.Parse(env.FS, ref)
 		if err != nil {
 			t.Fatalf("Parse(%s): %v", ref.RunID, err)
 		}
 		runs[ref.RunID] = run
 	}
 	return runs
+}
+
+func droidFixtureEnv() harness.Env {
+	return harness.Env{Home: "testdata/droid", FS: os.DirFS("testdata/droid")}
+}
+
+func droidParseSynthetic(t *testing.T, session, settings string) harness.Run {
+	t.Helper()
+	sessionPath := ".factory/sessions/project/s.jsonl"
+	settingsPath := ".factory/sessions/project/s.settings.json"
+	fsys := fstest.MapFS{
+		sessionPath:  {Data: []byte(session)},
+		settingsPath: {Data: []byte(settings)},
+	}
+	run, err := droidAdapterUnderTest(t).Parse(fsys, harness.SessionRef{
+		RunID: "s", Files: []string{sessionPath, settingsPath},
+	})
+	if err != nil {
+		t.Fatalf("Parse(synthetic): %v", err)
+	}
+	return run
 }

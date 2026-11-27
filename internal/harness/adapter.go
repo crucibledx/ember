@@ -20,7 +20,9 @@ type Adapter interface {
 // Env supplies everything an adapter needs from the process environment.
 // Command implementations must enforce a five-second timeout.
 type Env struct {
-	Home     string
+	Home string
+	// FS is rooted at Home and supplies filesystem discovery without direct adapter I/O.
+	FS       fs.FS
 	OS       string
 	Getenv   func(string) string
 	LookPath func(string) (string, error)

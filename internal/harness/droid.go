@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -38,7 +39,7 @@ func (droidAdapter) Detect(env Env) Detection {
 		onPath = err == nil
 	}
 	detection := Detection{
-		Installed: onPath || droidPathExists(filepath.Join(env.Home, ".factory")),
+		Installed: onPath || droidPathExists(env.FS, ".factory"),
 	}
 	if !detection.Installed {
 		return detection
@@ -58,49 +59,47 @@ func (droidAdapter) Detect(env Env) Detection {
 }
 
 func (droidAdapter) Setup(env Env, opts SetupOptions) []Change {
-	changes := droidEnvironmentChanges(EnvShell, "", opts.ListenHTTP)
+	changes := droidEnvironmentChanges(EnvShell, "", opts.ListenHTTP, opts.Content)
 	if opts.FactoryApp {
 		path := filepath.Join(env.Home, ".config", "droid", "daemon.env")
-		changes = append(changes, droidEnvironmentChanges(EnvFile, path, opts.ListenHTTP)...)
+		changes = append(changes, droidEnvironmentChanges(EnvFile, path, opts.ListenHTTP, opts.Content)...)
 	}
 	return changes
 }
 
-func droidEnvironmentChanges(target Target, path, listenHTTP string) []Change {
-	return []Change{
+func droidEnvironmentChanges(target Target, path, listenHTTP string, content bool) []Change {
+	changes := []Change{
 		{Target: target, Path: path, Key: "OTEL_TELEMETRY_ENDPOINT", Value: "http://" + listenHTTP, Exclusive: true},
 		{Target: target, Path: path, Key: "OTEL_TELEMETRY_FORMAT", Value: "genai"},
-		{Target: target, Path: path, Key: "OTEL_LOG_MESSAGE_CONTENT", Value: "false"},
 	}
+	if !content {
+		changes = append(changes, Change{Target: target, Path: path, Key: "OTEL_LOG_MESSAGE_CONTENT", Value: "false"})
+	}
+	return changes
 }
 
 func (droidAdapter) Sessions(env Env) ([]SessionRef, error) {
-	pattern := filepath.Join(droidGlobEscape(env.Home), droidSessionsPath, "*", "*.jsonl")
-	matches, err := filepath.Glob(pattern)
+	if env.FS == nil {
+		return nil, nil
+	}
+	matches, err := fs.Glob(env.FS, path.Join(droidSessionsPath, "*", "*.jsonl"))
 	if err != nil {
 		return nil, fmt.Errorf("find droid sessions: %w", err)
 	}
 	refs := make([]SessionRef, 0, len(matches))
 	for _, sessionPath := range matches {
-		relative, err := droidRelativePath(env.Home, sessionPath)
-		if err != nil {
-			return nil, err
+		runID := strings.TrimSuffix(path.Base(sessionPath), ".jsonl")
+		if runID == "" {
+			continue
 		}
-		ref := SessionRef{
-			RunID: strings.TrimSuffix(filepath.Base(sessionPath), ".jsonl"),
-			Files: []string{relative},
-		}
+		ref := SessionRef{RunID: runID, Files: []string{sessionPath}}
 		settingsPath := strings.TrimSuffix(sessionPath, ".jsonl") + ".settings.json"
-		if droidPathExists(settingsPath) {
-			settings, err := droidRelativePath(env.Home, settingsPath)
-			if err != nil {
-				return nil, err
-			}
-			ref.Files = append(ref.Files, settings)
+		if droidPathExists(env.FS, settingsPath) {
+			ref.Files = append(ref.Files, settingsPath)
 		}
 		refs = append(refs, ref)
 	}
-	if len(refs) > 0 && droidPathExists(filepath.Join(env.Home, droidTaskInvocationPath)) {
+	if len(refs) > 0 && droidPathExists(env.FS, droidTaskInvocationPath) {
 		for i := range refs {
 			refs[i].Files = append(refs[i].Files, droidTaskInvocationPath)
 		}
@@ -114,21 +113,12 @@ func (droidAdapter) Sessions(env Env) ([]SessionRef, error) {
 	return refs, nil
 }
 
-func droidGlobEscape(path string) string {
-	return strings.NewReplacer("[", "[[]", "*", "[*]", "?", "[?]").Replace(path)
-}
-
-func droidPathExists(path string) bool {
-	matches, err := filepath.Glob(droidGlobEscape(path))
-	return err == nil && len(matches) > 0
-}
-
-func droidRelativePath(home, name string) (string, error) {
-	relative, err := filepath.Rel(home, name)
-	if err != nil {
-		return "", fmt.Errorf("make droid session path relative: %w", err)
+func droidPathExists(fsys fs.FS, name string) bool {
+	if fsys == nil {
+		return false
 	}
-	return filepath.ToSlash(relative), nil
+	_, err := fs.Stat(fsys, name)
+	return err == nil
 }
 
 type droidSettings struct {
@@ -297,8 +287,8 @@ func droidApplyMessage(data []byte, at time.Time, model *string, turnTimes *[]ti
 	if json.Unmarshal(data, &record) != nil {
 		return
 	}
-	var content []json.RawMessage
-	if json.Unmarshal(record.Message.Content, &content) != nil {
+	var content *[]json.RawMessage
+	if json.Unmarshal(record.Message.Content, &content) != nil || content == nil {
 		return
 	}
 	role := record.Message.Role
@@ -308,7 +298,7 @@ func droidApplyMessage(data []byte, at time.Time, model *string, turnTimes *[]ti
 			*model = record.Message.ModelID
 		}
 	}
-	for _, raw := range content {
+	for _, raw := range *content {
 		var block struct {
 			Type string `json:"type"`
 		}
@@ -419,12 +409,16 @@ func droidReadInvocations(fsys fs.FS, ref SessionRef) map[string]droidInvocation
 func droidKindAndWorkstream(settings droidSettings, sessionID string, hasInvocation bool) (AgentKind, string) {
 	missionID := ""
 	missionKind := ""
+	missionSeen := false
 	subagent := hasInvocation
 	for _, tag := range settings.Tags {
 		switch tag.Name {
 		case "mission-v2":
-			missionID = tag.Metadata.MissionID
-			missionKind = tag.Metadata.Kind
+			if !missionSeen {
+				missionID = tag.Metadata.MissionID
+				missionKind = tag.Metadata.Kind
+				missionSeen = true
+			}
 		case "subagent":
 			subagent = true
 		}
