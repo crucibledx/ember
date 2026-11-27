@@ -314,7 +314,7 @@ func TestHarnessQualifiedRunState(t *testing.T) {
 func TestStateMigratesRootPins(t *testing.T) {
 	state := emptyState()
 	for _, name := range []string{"fake", "other"} {
-		state.Runs[stateKey(name, "run")] = &runState{Run: harness.Run{Harness: name, SessionID: "run"}}
+		state.Runs[stateKey(name, "run")] = &runState{Run: harness.Run{Harness: name, SessionID: "run", StartedAt: time.Unix(1, 0)}}
 	}
 	state.Roots.Roots["run"] = tree.SessionRootKey("fake", "run")
 	at := time.Unix(1000, 0)

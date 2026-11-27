@@ -35,11 +35,11 @@ func newSessionReceiver(config *Config, logger *zap.Logger) *sessionReceiver {
 func (r *sessionReceiver) Start(ctx context.Context, host component.Host) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.core.traces, r.core.metrics, r.core.logs = r.traces, r.metrics, r.logs
 	if r.started > 0 {
 		r.started++
 		return nil
 	}
+	r.core.traces, r.core.metrics, r.core.logs = r.traces, r.metrics, r.logs
 	userHome, err := os.UserHomeDir()
 	if err != nil {
 		return err

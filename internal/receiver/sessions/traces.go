@@ -38,17 +38,15 @@ func pruneTraces(out ptrace.Traces) {
 		return n == 0
 	})
 }
-func spanIdentity(resource ptrace.ResourceSpans, span ptrace.Span) string {
-	runID, _ := resource.Resource().Attributes().Get("service.instance.id")
-	harnessName, _ := span.Attributes().Get("ember.harness")
-	return stateKey(harnessName.Str(), runID.Str()) + span.SpanID().String()
+func spanIdentity(span ptrace.Span) string {
+	return span.TraceID().String() + "/" + span.SpanID().String()
 }
 func acceptedTraces(out, failed ptrace.Traces) ptrace.Traces {
 	failedIDs := map[string]bool{}
 	for _, resource := range failed.ResourceSpans().All() {
 		for _, scope := range resource.ScopeSpans().All() {
 			for _, span := range scope.Spans().All() {
-				failedIDs[spanIdentity(resource, span)] = true
+				failedIDs[spanIdentity(span)] = true
 			}
 		}
 	}
@@ -56,7 +54,7 @@ func acceptedTraces(out, failed ptrace.Traces) ptrace.Traces {
 	out.CopyTo(accepted)
 	for _, resource := range accepted.ResourceSpans().All() {
 		for _, scope := range resource.ScopeSpans().All() {
-			scope.Spans().RemoveIf(func(span ptrace.Span) bool { return failedIDs[spanIdentity(resource, span)] })
+			scope.Spans().RemoveIf(func(span ptrace.Span) bool { return failedIDs[spanIdentity(span)] })
 		}
 	}
 	pruneTraces(accepted)
@@ -97,12 +95,14 @@ func (c *core) emitTraces(ctx context.Context, forest *tree.Forest, now time.Tim
 	if out.SpanCount() == 0 {
 		return nil
 	}
-	accepted := out
+	checkpoint := ptrace.NewTraces()
+	out.CopyTo(checkpoint)
+	accepted := checkpoint
 	err := c.traces.ConsumeTraces(ctx, out)
 	if err != nil {
 		var partial consumererror.Traces
 		if errors.As(err, &partial) {
-			accepted = acceptedTraces(out, partial.Data())
+			accepted = acceptedTraces(checkpoint, partial.Data())
 		} else {
 			accepted = ptrace.NewTraces()
 		}

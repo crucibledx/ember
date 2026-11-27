@@ -46,13 +46,22 @@ func (c *core) emitMetrics(ctx context.Context, forest *tree.Forest, now time.Ti
 	if out.MetricCount() == 0 {
 		return nil
 	}
+	checkpoint := pmetric.NewMetrics()
+	out.CopyTo(checkpoint)
 	err := c.metrics.ConsumeMetrics(ctx, out)
 	failed := map[string]bool{}
 	if err != nil {
 		var partial consumererror.Metrics
 		if errors.As(err, &partial) {
 			for _, resource := range partial.Data().ResourceMetrics().All() {
-				failed[metricResourceKey(resource)] = true
+				id := metricResourceKey(resource)
+				if !due[id] {
+					for dueID := range due {
+						failed[dueID] = true
+					}
+					break
+				}
+				failed[id] = true
 			}
 		} else {
 			for id := range due {
@@ -60,16 +69,24 @@ func (c *core) emitMetrics(ctx context.Context, forest *tree.Forest, now time.Ti
 			}
 		}
 	}
-	for _, resource := range out.ResourceMetrics().All() {
+	for _, resource := range checkpoint.ResourceMetrics().All() {
 		id := metricResourceKey(resource)
-		if !due[id] || failed[id] {
+		if !due[id] {
 			continue
 		}
 		state := c.state.Runs[id]
+		if failed[id] {
+			state.invalidateFinalMetrics()
+			continue
+		}
 		if tree.Terminal(state.Run.Status) || tree.RunClosed(state.Run, now, c.config.Idle) {
 			state.FinalMetrics = true
 		}
 	}
 	c.startup = false
 	return err
+}
+
+func (s *runState) invalidateFinalMetrics() {
+	s.FinalMetrics = false
 }
