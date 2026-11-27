@@ -16,14 +16,8 @@ import (
 	"github.com/crucibledx/ember/internal/tree"
 )
 
-// snapshotAttribution is the single conversion point for registry lineage.
-// The owner fallback is replaced by snapshot.StartedBy and snapshot.WorkstreamID when those fields land.
 func snapshotAttribution(snapshot registry.Snapshot) (string, string) {
-	started := snapshot.Run.Owner
-	if started != "" {
-		started = snapshot.Run.Harness + ":" + started
-	}
-	return snapshot.Run.WorkstreamID, started
+	return snapshot.WorkstreamID, snapshot.StartedBy
 }
 
 func enrich(attrs pcommon.Map, snapshot registry.Snapshot) {
@@ -49,6 +43,9 @@ func (p *emberProcessor) noteOwner(snapshot *registry.Snapshot, key registry.Key
 	p.registry.NoteOwner(key, owner)
 	if snapshot.Run.Owner == "" {
 		snapshot.Run.Owner = owner
+		if snapshot.StartedBy == "" {
+			snapshot.StartedBy = snapshot.Run.Harness + ":" + owner
+		}
 	}
 }
 

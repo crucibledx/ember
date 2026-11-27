@@ -64,7 +64,7 @@ func testSnapshot(p *emberProcessor, id string) registry.Snapshot {
 	run := harness.Run{Harness: "synthetic", SessionID: id, Kind: harness.KindAgent,
 		StartedAt: testBase.Add(-time.Minute), WorkstreamID: "stream-1"}
 	snapshot := registry.Snapshot{Run: run, TraceID: tree.TraceID(root), RootKey: root,
-		RootSessionID: id, WorkID: "work-1", Idle: time.Minute, LastRecord: testBase.Add(2 * time.Hour),
+		RootSessionID: id, WorkstreamID: "stream-1", WorkID: "work-1", Idle: time.Minute, LastRecord: testBase.Add(2 * time.Hour),
 		Segments:  []tree.Segment{{Number: 1, Start: testBase, End: testBase.Add(2 * time.Hour)}},
 		ToolSpans: map[string]registry.SpanRef{}}
 	p.registry.Put(snapshot)
