@@ -18,7 +18,6 @@ type spanKey struct {
 type remap struct {
 	moved    bool
 	run      registry.Key
-	snapshot registry.Snapshot
 	toolID   string
 	newTrace pcommon.TraceID
 	newSpan  pcommon.SpanID

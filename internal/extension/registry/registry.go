@@ -46,6 +46,7 @@ type Registry struct {
 	owners                   map[string]Key
 	native                   map[Key]time.Time
 	nativeLast               map[Key]time.Time
+	nativeWorkIDs            map[Key]string
 	nativeCalls              map[Key]map[string]string
 	emitted                  map[Key]map[string]SpanRef
 	reserved                 map[Key]map[string]SpanRef
@@ -58,7 +59,7 @@ type Registry struct {
 }
 
 func New() *Registry {
-	return &Registry{snaps: map[Key]Snapshot{}, parents: map[Key]parent{}, owners: map[string]Key{}, native: map[Key]time.Time{}, nativeLast: map[Key]time.Time{}, nativeCalls: map[Key]map[string]string{}, emitted: map[Key]map[string]SpanRef{}, reserved: map[Key]map[string]SpanRef{}, lastResolve: map[Key]time.Time{}, inflight: map[Key]*resolveCall{}, dropped: map[string]uint64{}, started: time.Now()}
+	return &Registry{snaps: map[Key]Snapshot{}, parents: map[Key]parent{}, owners: map[string]Key{}, native: map[Key]time.Time{}, nativeLast: map[Key]time.Time{}, nativeWorkIDs: map[Key]string{}, nativeCalls: map[Key]map[string]string{}, emitted: map[Key]map[string]SpanRef{}, reserved: map[Key]map[string]SpanRef{}, lastResolve: map[Key]time.Time{}, inflight: map[Key]*resolveCall{}, dropped: map[string]uint64{}, started: time.Now()}
 }
 func FromHost(host component.Host, id component.ID) (*Registry, error) {
 	extension, ok := host.GetExtensions()[id]
@@ -116,6 +117,9 @@ func (r *Registry) Put(snapshot Snapshot) {
 	if snapshot.StartedBy == "" && snapshot.Run.Owner != "" {
 		snapshot.StartedBy = snapshot.Run.Harness + ":" + snapshot.Run.Owner
 	}
+	if workID := r.nativeWorkIDs[key]; workID != "" {
+		snapshot.WorkID = workID
+	}
 	r.snaps[key] = snapshot
 	for _, call := range snapshot.Run.ToolCalls {
 		r.owners[ownerKey(key.Harness, call.ID)] = key
@@ -169,6 +173,24 @@ func (r *Registry) Parent(key Key) (Key, string, bool) {
 	defer r.mu.RUnlock()
 	p, ok := r.parents[key]
 	return p.key, p.call, ok
+}
+func (r *Registry) NoteWorkID(key Key, workID string) {
+	if workID == "" {
+		return
+	}
+	r.mu.Lock()
+	r.nativeWorkIDs[key] = workID
+	if snapshot, ok := r.snaps[key]; ok {
+		snapshot.WorkID = workID
+		r.snaps[key] = snapshot
+	}
+	r.mu.Unlock()
+}
+func (r *Registry) WorkID(key Key) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	workID, ok := r.nativeWorkIDs[key]
+	return workID, ok
 }
 func (r *Registry) NoteOwner(key Key, owner string) {
 	r.mu.Lock()

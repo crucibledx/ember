@@ -35,6 +35,43 @@ func putNonempty(attrs pcommon.Map, key, value string) {
 	}
 }
 
+func (p *emberProcessor) noteWorkID(snapshot *registry.Snapshot, key registry.Key, resource pcommon.Resource) {
+	value, ok := resource.Attributes().Get("ember.work.id")
+	if !ok || value.Type() != pcommon.ValueTypeStr || value.Str() == "" {
+		return
+	}
+	p.registry.NoteWorkID(key, value.Str())
+	snapshot.WorkID = value.Str()
+}
+
+func (p *emberProcessor) noteUnresolvedWorkID(adapter harness.Adapter, attrs, resource pcommon.Map) {
+	value, ok := resource.Get("ember.work.id")
+	if !ok || value.Type() != pcommon.ValueTypeStr || value.Str() == "" {
+		return
+	}
+	mapping := adapter.Mapping()
+	session := attribute(attrs, resource, mapping.SessionKey)
+	agent := attribute(attrs, resource, mapping.SubagentKey)
+	call := attribute(attrs, resource, mapping.ToolCallKeys...)
+	key := registry.Key{Harness: adapter.Name()}
+	switch {
+	case session != "" && agent != "":
+		key.RunID = session + "/" + agent
+	case call != "" && agent == "":
+		owner, found := p.registry.ToolOwner(adapter.Name(), call)
+		if found && candidateMatches(session, owner) {
+			key = owner
+		} else if session != "" {
+			key.RunID = session
+		}
+	case session != "":
+		key.RunID = session
+	}
+	if key.RunID != "" {
+		p.registry.NoteWorkID(key, value.Str())
+	}
+}
+
 func (p *emberProcessor) noteOwner(snapshot *registry.Snapshot, key registry.Key, mapping harness.Mapping, attrs, resource pcommon.Map) {
 	owner := attribute(attrs, resource, mapping.OwnerKeys...)
 	if owner == "" {
@@ -87,8 +124,10 @@ func (p *emberProcessor) processLog(ctx context.Context, adapter harness.Adapter
 	}
 	snapshot, key, ok := p.resolveData(ctx, adapter, record.Attributes(), resource.Attributes(), at)
 	if !ok {
+		p.noteUnresolvedWorkID(adapter, record.Attributes(), resource.Attributes())
 		return
 	}
+	p.noteWorkID(&snapshot, key, resource)
 	p.noteOwner(&snapshot, key, adapter.Mapping(), record.Attributes(), resource.Attributes())
 	enrich(record.Attributes(), snapshot)
 	if !record.TraceID().IsEmpty() {
@@ -130,8 +169,10 @@ func (p *emberProcessor) processMetric(ctx context.Context, adapter harness.Adap
 	visitPoints(metric, func(attrs pcommon.Map, at time.Time) {
 		snapshot, key, ok := p.resolveData(ctx, adapter, attrs, resource.Attributes(), at)
 		if !ok {
+			p.noteUnresolvedWorkID(adapter, attrs, resource.Attributes())
 			return
 		}
+		p.noteWorkID(&snapshot, key, resource)
 		p.noteOwner(&snapshot, key, adapter.Mapping(), attrs, resource.Attributes())
 		enrich(attrs, snapshot)
 	})
@@ -170,6 +211,7 @@ func visitPoints(metric pmetric.Metric, visit func(pcommon.Map, time.Time)) {
 
 func (p *emberProcessor) enrichSpan(entry *spanEntry) {
 	snapshot := entry.snapshot
+	p.noteWorkID(&snapshot, entry.key, entry.resource)
 	p.noteOwner(&snapshot, entry.key, entry.mapping, entry.span.Attributes(), entry.resource.Attributes())
 	entry.snapshot = snapshot
 	enrich(entry.span.Attributes(), snapshot)

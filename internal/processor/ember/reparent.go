@@ -107,6 +107,7 @@ func (p *emberProcessor) reparentGroup(ctx context.Context, group *traceGroup) {
 	p.resolveGroup(ctx, group.entries)
 	for _, entry := range group.entries {
 		if !entry.known {
+			p.noteUnresolvedWorkID(entry.adapter, entry.span.Attributes(), entry.resource.Attributes())
 			p.registry.IncUnresolved()
 			continue
 		}
@@ -128,20 +129,30 @@ func (p *emberProcessor) reparentGroup(ctx context.Context, group *traceGroup) {
 }
 
 func (p *emberProcessor) resolveGroup(ctx context.Context, entries []*spanEntry) {
-	for range len(entries) + 1 {
-		changed := false
-		for _, entry := range entries {
-			if entry.known {
-				continue
+	resolveParents := func() {
+		for range len(entries) + 1 {
+			changed := false
+			for _, entry := range entries {
+				if entry.known {
+					continue
+				}
+				if p.resolveEntry(ctx, entry, entries) {
+					changed = true
+				}
 			}
-			if p.resolveEntry(ctx, entry, entries) {
-				changed = true
+			if !changed {
+				break
 			}
-		}
-		if !changed {
-			break
 		}
 	}
+	resolveParents()
+	for _, entry := range entries {
+		if !entry.known && entry.session != "" && !entry.triedBase {
+			entry.triedBase = true
+			p.selectRun(ctx, entry, registry.Key{Harness: entry.adapter.Name(), RunID: entry.session})
+		}
+	}
+	resolveParents()
 	var root *spanEntry
 	for _, entry := range entries {
 		if entry.known && (entry.span.ParentSpanID().IsEmpty() || entry.parent == -1) {
@@ -192,10 +203,6 @@ func (p *emberProcessor) resolveEntry(ctx context.Context, entry *spanEntry, ent
 				return true
 			}
 		}
-	}
-	if entry.session != "" && !entry.triedBase {
-		entry.triedBase = true
-		return p.selectRun(ctx, entry, registry.Key{Harness: entry.adapter.Name(), RunID: entry.session})
 	}
 	return false
 }
@@ -298,7 +305,7 @@ func (p *emberProcessor) moveSpan(entry *spanEntry) {
 		entry.span.Attributes().PutStr("ember.original_trace_id", traceString(entry.oldTrace))
 	}
 	p.cache.put(spanKey{trace: entry.oldTrace, span: entry.oldSpan}, remap{
-		moved: placement.moved, run: entry.key, snapshot: entry.snapshot, toolID: entry.call,
+		moved: placement.moved, run: entry.key, toolID: entry.call,
 		newTrace: placement.trace, newSpan: placement.newSpan,
 	})
 }

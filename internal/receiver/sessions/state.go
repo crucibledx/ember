@@ -28,6 +28,7 @@ type runState struct {
 	AcceptedLogs    []string             `json:"accepted_logs,omitempty"`
 	FinalMetrics    bool                 `json:"final_metrics"`
 	NativeTools     map[string]string    `json:"native_tools,omitempty"`
+	NativeWorkID    string               `json:"native_work_id,omitempty"`
 }
 type diskState struct {
 	Version    int                  `json:"version"`

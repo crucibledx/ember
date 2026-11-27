@@ -24,6 +24,9 @@ type WorkIDOptions struct {
 }
 
 func ownWorkID(run harness.Run, options WorkIDOptions) string {
+	if id := options.Explicit[RootRunID(run.Harness, run.SessionID)]; id != "" {
+		return id
+	}
 	if id := options.Explicit[run.SessionID]; id != "" {
 		return id
 	}
