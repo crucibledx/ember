@@ -94,9 +94,22 @@ func TestForest(t *testing.T) {
 		eq(t, emit.Metrics(held, emit.Config{}, start).ResourceMetrics().Len(), 0)
 		o.Now = start.Add(time.Minute)
 		eq(t, tree.BuildForest([]harness.Run{orphan, child, grandchild}, o).Nodes["grandchild"].RootSessionID, "orphan")
-		late := tree.BuildForest([]harness.Run{orphan, child, grandchild, testRun("missing")}, o)
+		lateParent := testRun("missing")
+		lateParent.WorkstreamID = "late-workstream"
+		lateParent.Parent = &harness.ParentRef{SessionID: "absent"}
+		grandchild.WorkstreamID = "descendant-workstream"
+		late := tree.BuildForest([]harness.Run{orphan, child, grandchild, lateParent}, o)
 		eq(t, late.Nodes["orphan"].ParentSpanID(), "")
+		eq(t, late.Nodes["orphan"].Parent.SessionID, "missing")
+		eq(t, late.Nodes["orphan"].Held, false)
 		eq(t, late.Nodes["grandchild"].RootSessionID, "orphan")
+		eq(t, late.Nodes["grandchild"].TraceID(), late.Nodes["orphan"].TraceID())
+		eq(t, len(late.Held), 0)
+		lateParent.WorkstreamID = ""
+		heldParent := tree.BuildForest([]harness.Run{orphan, child, grandchild, lateParent}, o)
+		eq(t, heldParent.Nodes["orphan"].Held, false)
+		eq(t, heldParent.Nodes["grandchild"].TraceID(), heldParent.Nodes["orphan"].TraceID())
+		eq(t, len(heldParent.Held), 1)
 	})
 	t.Run("workstream orphan root and no cross trace parent", func(t *testing.T) {
 		agent := family()[1]
@@ -110,17 +123,23 @@ func TestForest(t *testing.T) {
 	t.Run("attribution and child order", func(t *testing.T) {
 		runs := family()
 		runs[0].Owner = "owner"
-		runs[2].StartedAt, runs[2].EndedAt = start.Add(-time.Hour), time.Time{}
-		runs[2].Status = harness.StatusRunning
+		runs[2].StartedAt, runs[2].EndedAt = start.Add(-time.Hour), start
+		runs[2].Status = harness.StatusUnknown
 		sibling := testRun("sibling")
 		sibling.Parent = &harness.ParentRef{SessionID: "parent"}
 		sibling.StartedAt = start.Add(-2 * time.Hour)
 		runs = append(runs, sibling)
-		o := options()
-		o.Attribution = []tree.AttributionRecord{{At: start.Add(30 * time.Minute), Human: "human", Source: "source", SessionID: "child", Role: "active"}}
+		o := tree.Options{Now: start.Add(time.Hour), Idle: 2 * time.Hour, Roots: &tree.RootPins{}}
+		o.Attribution = []tree.AttributionRecord{
+			{At: start.Add(30 * time.Minute), Human: "human", Source: "source", SessionID: "child", Role: "active"},
+			{At: start.Add(30 * time.Second), Human: "inside", Source: "source", SessionID: "child", Role: "active"},
+			{At: start.Add(-30 * time.Minute), Human: "early", Source: "source", SessionID: "sibling", Role: "active"},
+		}
 		forest := tree.BuildForest(runs, o)
 		eq(t, forest.Nodes["child"].StartedBy, "test-harness:owner")
-		eq(t, forest.Nodes["parent"].Active, []string{"source:human", "test-harness:owner"})
+		eq(t, forest.Nodes["parent"].Active, []string{"source:inside", "test-harness:owner"})
+		eq(t, forest.Nodes["child"].Active, []string{"source:human", "source:inside", "test-harness:owner"})
+		eq(t, forest.Nodes["sibling"].Active, []string{"source:early", "test-harness:owner"})
 		eq(t, forest.Nodes["agent"].Children[0].Run.SessionID, "child")
 		eq(t, forest.Nodes["parent"].Children[0].Run.SessionID, "sibling")
 	})

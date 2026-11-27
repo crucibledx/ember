@@ -201,11 +201,11 @@ func TestMetrics(t *testing.T) {
 		}
 		eq(t, point(metric(reset, "state", "ember.usage.credits"), "unknown", "").DoubleValue(), float64(2))
 		eq(t, metric(reset, "state", "ember.tool.calls").Sum().DataPoints().Len(), 0)
-		after.Usage = map[string]harness.Usage{"unknown": {Input: 20, Credits: 3}}
+		state.Metrics(tree.BuildForest(nil, options()), config, start.Add(1000*time.Hour))
 		after.ToolCalls = before.ToolCalls
 		later := state.Metrics(forest(options(), after), config, start.Add(4*time.Minute))
-		eq(t, point(metric(later, "state", "ember.usage.tokens"), "unknown", "input").IntValue(), int64(20))
-		eq(t, point(metric(later, "state", "ember.usage.credits"), "unknown", "").DoubleValue(), float64(3))
+		eq(t, point(metric(later, "state", "ember.usage.tokens"), "unknown", "input").IntValue(), int64(10))
+		eq(t, point(metric(later, "state", "ember.usage.credits"), "unknown", "").DoubleValue(), float64(2))
 		calls := metric(later, "state", "ember.tool.calls").Sum().DataPoints()
 		eq(t, calls.Len(), 1)
 		eq(t, calls.At(0).IntValue(), int64(1))

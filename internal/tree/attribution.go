@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/crucibledx/ember/internal/harness"
 )
 
 type AttributionRecord struct {
@@ -29,7 +31,7 @@ func applyAttribution(node *Node, records []AttributionRecord, fallback string, 
 	if node.StartedBy != "" {
 		active[node.StartedBy] = true
 	}
-	collectActive(node, records, active, now)
+	collectActive(node, records, active, node.Run.StartedAt, attributionEnd(node.Run, now))
 	node.Active = make([]string, 0, len(active))
 	for id := range active {
 		node.Active = append(node.Active, id)
@@ -47,16 +49,21 @@ func earliestStarted(runID string, records []AttributionRecord) string {
 	}
 	return id
 }
-func collectActive(node *Node, records []AttributionRecord, active map[string]bool, now time.Time) {
-	end := cmp.Or(node.Run.EndedAt, now)
+func attributionEnd(run harness.Run, now time.Time) time.Time {
+	if Terminal(run.Status) {
+		return LastRecord(run)
+	}
+	return now
+}
+func collectActive(node *Node, records []AttributionRecord, active map[string]bool, start, end time.Time) {
 	for _, record := range records {
 		if record.SessionID == node.Run.SessionID && record.Human != "" &&
-			!record.At.Before(node.Run.StartedAt) && !record.At.After(end) {
+			!record.At.Before(start) && !record.At.After(end) {
 			active[record.id()] = true
 		}
 	}
 	for _, child := range node.Children {
-		collectActive(child, records, active, now)
+		collectActive(child, records, active, start, end)
 	}
 }
 func ActiveHumanIDs(ids []string) string { return strings.Join(ids, ",") }
