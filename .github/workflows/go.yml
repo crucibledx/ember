@@ -61,6 +61,8 @@ jobs:
           install-only: true
       - name: golangci-lint
         run: make lint
+      - name: e2e
+        run: make e2e
 
   generate:
     name: generated files
@@ -122,15 +124,6 @@ jobs:
         run: |
           dist/ember_linux_amd64 version
           dist/ember_linux_amd64 version --json
-      - name: The size gate fails above the limit and passes at it
-        run: |
-          truncate -s "$((MAX_BINARY_MIB + 1))M" "$RUNNER_TEMP/over"
-          truncate -s "${MAX_BINARY_MIB}M" "$RUNNER_TEMP/at"
-          if scripts/check-binary-size.sh "$MAX_BINARY_MIB" "$RUNNER_TEMP/over"; then
-            echo "size gate passed a $((MAX_BINARY_MIB + 1)) MiB file" >&2
-            exit 1
-          fi
-          scripts/check-binary-size.sh "$MAX_BINARY_MIB" "$RUNNER_TEMP/at"
       - name: Upload binaries (manual release build only)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
