@@ -42,6 +42,8 @@ not marked context below is an adapter or tooling. No `util`, `common`, `helpers
 | `internal/dashboards`, `dashboards/` | build-time dashboard generator and its generated JSON | tooling | #11 |
 | `internal/problems` | workstream problem reports to log records | context | #16 |
 | `internal/stack` | local Docker-free backend for `ember up` | adapter | M3 |
+| `internal/tools/<name>` | repo tooling run with `go run` (`binarysize`) | tooling | #18 |
+| `e2e/harness`, `e2e/commands`, `e2e/contracts` | end-to-end tests of the real binary (build tag `e2e`) | test | #18 |
 
 Never edit `cmd/ember/components.go` by hand; it comes from [`builder-config.yaml`](builder-config.yaml).
 
@@ -51,19 +53,56 @@ Never edit `cmd/ember/components.go` by hand; it comes from [`builder-config.yam
 
 | Target | Runs |
 |---|---|
-| `make check` (default) | `make build vet test lint` |
+| `make check` (default) | `make build vet test lint e2e` |
 | `make build` | `go build ./...` |
-| `make vet` | `go vet ./...` |
+| `make vet` | `go vet -tags e2e ./...` |
 | `make test` | `go test -race ./...` with cgo on |
 | `make lint` | `golangci-lint run` (version pinned as `GOLANGCI_LINT_VERSION`) |
 | `make fmt` | `golangci-lint fmt` (gofmt and goimports) |
+| `make e2e` | `go test -count=1 -tags e2e ./e2e/...` |
 | `make generate` | ocb from `builder-config.yaml`, then `components.go`, `go.mod` and `go.sum` |
-| `make dist [VERSION=x.y.z]` | five stripped release binaries in `dist/`, then the size gate |
+| `make dist [VERSION=x.y.z]` | five stripped release binaries in `dist/`, then the size gate (`internal/tools/binarysize`) |
 | `make clean` | removes `dist/` and `build/` |
 
-Two checks stay shell scripts in `scripts/`, called by `make dist` and tested on their own in CI:
-`check-binary-size.sh` (the size gate; CI feeds it files just over and at the limit) and `check-version.sh` (the
-release version is SemVer; cases in `check-version_test.sh`; GoReleaser replaces it in M3).
+Repo tooling that needs more than a recipe is a Go program in `internal/tools/<name>/`, run with `go run` and unit
+tested (`binarysize`, the 80 MiB gate). One shell script stays: `scripts/check-version.sh` (the release version is
+SemVer; cases in `check-version_test.sh`, run in CI), which GoReleaser replaces in M3.
+
+## Tests
+
+Three layers, as in forge-cli:
+
+- **Unit:** `*_test.go` next to the code, run by `make test` (`-race`). Context packages are tested with in-memory
+  fakes of their own interfaces; adapters with `t.TempDir()` and `httptest`. No network and no real home directory.
+  Fixtures go in `testdata/` next to the package that reads them.
+- **Contract:** a port with more than one implementation, a test fake included, gets one shared suite,
+  `internal/<context>/<port>test.Run(t, newImpl)`, run against every implementation (the first one is the harness
+  `Adapter`, #7). Promises from the spec that cut across commands (output and wire formats, exit codes, privacy,
+  paths per OS) live in `e2e/contracts/`. `TestComponentsMatchSpec` in `cmd/ember` keeps its place, since AC-2 names
+  it.
+- **E2E:** `e2e/commands/<command>_test.go` runs the real binary against temp directories: at least one success and
+  one failure case (exit code and message) per command. Each e2e package's `TestMain` builds the binary once with
+  `e2e/harness.Build`, and `Run` gives every call a fresh `HOME`. Everything under `e2e/` has the `e2e` build tag and
+  runs with `make e2e`, which always reruns (the test cache cannot see the binary change); lint and vet include it.
+
+`make lint` also enforces the layout: `depguard` keeps I/O, cobra, collector wiring and adapter imports out of the
+context packages listed in `.golangci.yml` (add a new context package there), and `funlen` limits functions to 80
+lines outside tests. Files stay under about 300 lines (500 at most, tests 800); split them along domain concepts.
+
+## Library first
+
+Look in the standard library, then the modules already in `go.mod`, then a maintained library, before writing code
+for a general problem. A new direct dependency is listed in its PR with its license (MIT-compatible), `govulncheck`
+result, maintenance, and cost in binary size. Candidates already picked for the open issues:
+
+- #9: `mdatagen` for the three Ember components' metadata and lifecycle tests; the collector's `receivertest`,
+  `processortest` and `consumertest`, and contrib `pdatatest` and `golden` for pdata comparisons.
+- #10: `confmap` (already linked) to decode the Ember config and expand `${env:…}`, then one validate function; for
+  key-order-preserving JSON edits in setup, compare `encoding/json/jsontext` with a library before writing one.
+- #11: the Grafana Foundation SDK for Go instead of hand-built dashboard JSON.
+- #16: the contrib `filelog` receiver could read `problems.jsonl` without Ember code, but it is a new component (a
+  spec line) and adds binary size; #16 decides.
+- M3: GoReleaser replaces `make dist`'s cross-builds and `scripts/check-version.sh`.
 
 ## How to work
 
@@ -72,7 +111,7 @@ release version is SemVer; cases in `check-version_test.sh`; GoReleaser replaces
 - This repo is public: docs, specs, PR bodies and code comments state a rule inline instead of linking or naming a
   document from a private repo.
 - Run `make check` before every push (details in the loop contract): `golangci-lint run`, `go vet ./...`,
-  `go test -race ./...`, `go build ./...`. The org Bun CI does not apply here.
+  `go test -race ./...`, `go build ./...` and the e2e tests. The org Bun CI does not apply here.
 - A collector component is added or bumped in `builder-config.yaml`, then `make generate`; never with
   `go get` alone. All component versions come from one upstream release.
 

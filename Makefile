@@ -1,5 +1,6 @@
 # Ember task runner. Needs GNU make 3.81 or later and a POSIX shell (Git Bash on Windows).
-#   make check                   build, vet, race tests and lint: what CI runs on every OS
+#   make check                   build, vet, race tests, lint and e2e: what CI runs on every OS
+#   make e2e                     end-to-end tests of the real binary (e2e/, build tag e2e)
 #   make fmt                     gofmt and goimports through golangci-lint
 #   make generate                regenerate cmd/ember/components.go, go.mod and go.sum from builder-config.yaml
 #   make dist [VERSION=x.y.z]    five stripped release binaries in dist/ and the size gate
@@ -30,15 +31,16 @@ export MAX_BINARY_MIB VERSION
 BINARIES := $(foreach target,$(TARGETS),dist/ember_$(subst /,_,$(target))$(if $(filter windows/%,$(target)),.exe))
 
 .DEFAULT_GOAL := check
-.PHONY: check build vet test lint fmt golangci-lint-version generate dist release-inputs clean FORCE
+.PHONY: check build vet test lint fmt e2e golangci-lint-version generate dist release-inputs clean FORCE
 
-check: build vet test lint
+check: build vet test lint e2e
 
 build:
 	$(GO) build ./...
 
+# -tags e2e so the end-to-end tests are vetted too.
 vet:
-	$(GO) vet ./...
+	$(GO) vet -tags e2e ./...
 
 # The race detector needs cgo.
 test:
@@ -49,6 +51,10 @@ lint:
 
 fmt:
 	$(GOLANGCI_LINT) fmt
+
+# -count=1: the tests build the binary themselves, so go test's cache cannot see a change to it.
+e2e:
+	$(GO) test -count=1 -tags e2e ./e2e/...
 
 golangci-lint-version:
 	@echo $(GOLANGCI_LINT_VERSION)
@@ -67,7 +73,7 @@ generate:
 	$(GO) mod tidy
 
 dist: $(BINARIES)
-	scripts/check-binary-size.sh "$$MAX_BINARY_MIB" $(BINARIES)
+	$(GO) run ./internal/tools/binarysize "$$MAX_BINARY_MIB" $(BINARIES)
 
 # Every target binary is rebuilt (the Go build cache keeps that cheap), after the input checks.
 dist/ember_%: FORCE | release-inputs
