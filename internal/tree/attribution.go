@@ -48,7 +48,10 @@ func earliestStarted(runID string, records []AttributionRecord) string {
 	return id
 }
 func collectActive(node *Node, records []AttributionRecord, active map[string]bool, now time.Time) {
-	end := cmp.Or(node.Run.EndedAt, now)
+	end := now
+	if Terminal(node.Run.Status) {
+		end = LastRecord(node.Run)
+	}
 	for _, record := range records {
 		if record.SessionID == node.Run.SessionID && record.Human != "" &&
 			!record.At.Before(node.Run.StartedAt) && !record.At.After(end) {

@@ -110,13 +110,13 @@ func TestForest(t *testing.T) {
 	t.Run("attribution and child order", func(t *testing.T) {
 		runs := family()
 		runs[0].Owner = "owner"
-		runs[2].StartedAt, runs[2].EndedAt = start.Add(-time.Hour), time.Time{}
-		runs[2].Status = harness.StatusRunning
+		runs[2].StartedAt, runs[2].EndedAt = start.Add(-time.Hour), start
+		runs[2].Status = harness.StatusUnknown
 		sibling := testRun("sibling")
 		sibling.Parent = &harness.ParentRef{SessionID: "parent"}
 		sibling.StartedAt = start.Add(-2 * time.Hour)
 		runs = append(runs, sibling)
-		o := options()
+		o := tree.Options{Now: start.Add(time.Hour), Idle: 2 * time.Hour, Roots: &tree.RootPins{}}
 		o.Attribution = []tree.AttributionRecord{{At: start.Add(30 * time.Minute), Human: "human", Source: "source", SessionID: "child", Role: "active"}}
 		forest := tree.BuildForest(runs, o)
 		eq(t, forest.Nodes["child"].StartedBy, "test-harness:owner")
