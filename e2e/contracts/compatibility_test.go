@@ -16,7 +16,25 @@ import (
 var versionLine = regexp.MustCompile(`^ember (\S+) \((\S+), (\S+)\) otelcol (\d+\.\d+\.\d+) (\S+)/(\S+)\n$`)
 
 // AC-1 promises a SemVer version without a leading v; the same grammar as scripts/check-version.sh.
-var semver = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
+// Numeric identifiers, prerelease ones included, have no leading zeros; build identifiers may.
+var semver = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)` +
+	`(-(0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?` +
+	`(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
+
+func TestSemverGrammar(t *testing.T) {
+	valid := []string{"0.1.0", "1.2.3-0", "1.2.3-rc.1", "1.2.3-0a", "1.2.3--1", "1.2.3+001", "1.2.3-rc.1+build.05"}
+	invalid := []string{"v1.2.3", "01.2.3", "1.2", "1.2.3-01", "1.2.3-rc.01", "1.2.3-", "1.2.3-rc..1", "1.2.3+"}
+	for _, v := range valid {
+		if !semver.MatchString(v) {
+			t.Errorf("%q rejected, want valid", v)
+		}
+	}
+	for _, v := range invalid {
+		if semver.MatchString(v) {
+			t.Errorf("%q accepted, want invalid", v)
+		}
+	}
+}
 
 func TestVersionTextFormat(t *testing.T) {
 	res := ember.Run(t, t.TempDir(), "version")
