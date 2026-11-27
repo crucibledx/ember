@@ -537,12 +537,14 @@ Queries use only §7's Prometheus names and adapters' `Mapping.Metrics`.
 
 | Milestone | Work (PRs) | Rows |
 |---|---|---|
-| M1 (week 3): Droid end to end on our four workstreams | #6 bootstrap; #7 adapter contract; #8 Droid; #9 in three PRs: 9a tree and emit, 9b receiver, registry and state, 9c processor; #10 in two PRs: 10a setup and undo, 10b config, run, up, down, doctor, status; #11 dashboards; #12 dogfood against the POC stack | AC-1 to AC-31 |
-| M2 (weeks 4–5) | new issues: Claude Code adapter; human attribution; gateway | AC-32 to AC-38 |
-| M3 (week 6): v0.1.0 | new issues: local stack; install scripts and release; README; web serves the scripts | AC-39 to AC-43 |
+| M1 (about 4–5 days after #6 starts, a chain of about 8 PRs, mostly L): Droid end to end on our four workstreams | #6 bootstrap; #18 Go restructure, PR 1 lands between #6 and #7; #7 adapter contract; #8 Droid; #9 in three PRs: 9a tree and emit, 9b receiver, registry and state, 9c processor; #10 in two PRs: 10a setup and undo, 10b config, run, up, down, doctor, status; #11 dashboards; #12 dogfood against the POC stack | AC-1 to AC-31 |
+| M2 (about 2 days after M1) | new issues: Claude Code adapter; human attribution; gateway | AC-32 to AC-38 |
+| M3 (about 2 days after M2, plus Nazar's release tag): v0.1.0 | new issues: local stack; install scripts and release; README; web serves the scripts | AC-39 to AC-43 |
 
-Every PR stays under about 1,500 changed lines. After merge the orchestrator opens the M2 and M3 issues with their
-rows. `CHANGELOG.md` starts at v0.1.0. Until then commits are `docs: ...` or `chore: ...`.
+Estimates are calendar days, counting about half a day per dependency step for the maintainer's merge and a full
+day per spec step, and weeks only for a named outside wait (here: the M3 release tag). Every PR stays under about
+1,500 changed lines. After merge the orchestrator opens the M2 and M3 issues with their rows. `CHANGELOG.md` starts
+at v0.1.0. Until then commits are `docs: ...` or `chore: ...`.
 
 ## Open questions
 
