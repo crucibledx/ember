@@ -16,6 +16,7 @@ Read by the Crucible loop agents (`implement-spec`, `verifier`). Keep it accurat
   Release targets and the 80 MiB size gate: `make dist` (five stripped binaries into `dist/`). Cross-builds
   fill the Go build cache by several GB; run `go clean -cache` afterwards on machines short of disk.
 - **Commit style:** `chore: ...` / `docs: ...` until v0.1.0, then `feat(v0.x.y): ...` / `fix(v0.x.y): ...`.
-- **Specs:** `specs/NNNN-slug.md`, see `crucibledx/hq` `specs/README.md`. Design drafts live in `docs/`.
+- **Specs:** `specs/NNNN-slug.md`, format and approval rules in [`specs/README.md`](../specs/README.md). Design drafts
+  live in `docs/`.
 - **Release:** manual. Loop PRs never tag or publish. The `Go` workflow's `workflow_dispatch` release build (binaries
   as workflow artifacts) is run by Nazar only; GoReleaser on a tag arrives in M3.

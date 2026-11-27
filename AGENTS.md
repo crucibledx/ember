@@ -9,9 +9,6 @@ How to work in this repo and where to find things. Ember is a Go custom OpenTele
 | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | Current state, checks, commit style, release | [`.factory/loop-contract.md`](.factory/loop-contract.md)                                                        |
 | What v1 builds and the acceptance contract   | [`specs/0001-ember-v1.md`](specs/0001-ember-v1.md)                                                              |
-| Org context, product status, delivery loop   | `crucibledx/hq` `AGENTS.md`                                                                                     |
-| Ember research (reference, may be stale)     | `crucibledx/hq` `research/*ember*.md`, `research/crucible-observability-product.md`                             |
-| Cross-project architecture (source of truth) | `crucibledx/hq` `design/`                                                                                       |
 | Diagrams                                     | `crucibledx/assets` `ember/diagrams/`                                                                           |
 | Spec process                                 | [`specs/README.md`](specs/README.md)                                                                            |
 | Org engineering standards                    | `engineering-standards` skill (`crucibledx/factory-loop` `plugins/crucible-loop/skills/engineering-standards/`) |
@@ -70,9 +67,10 @@ release version is SemVer; cases in `check-version_test.sh`; GoReleaser replaces
 
 ## How to work
 
-- Nothing is approved product direction until a spec merges, here in `specs/` or in `crucibledx/hq` `specs/`.
-  Research notes, roadmaps and unmerged drafts (including the Forge manifest Ember plans to read) are input, not
-  decisions.
+- Nothing is approved product direction until a spec merges, here in `specs/` or as an org-level spec. Research
+  notes, roadmaps and unmerged drafts (including the Forge manifest Ember plans to read) are input, not decisions.
+- This repo is public: docs, specs, PR bodies and code comments state a rule inline instead of linking or naming a
+  document from a private repo.
 - Run `make check` before every push (details in the loop contract): `golangci-lint run`, `go vet ./...`,
   `go test -race ./...`, `go build ./...`. The org Bun CI does not apply here.
 - A collector component is added or bumped in `builder-config.yaml`, then `make generate`; never with
