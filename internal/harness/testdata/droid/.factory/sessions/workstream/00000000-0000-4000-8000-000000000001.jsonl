@@ -1,0 +1,4 @@
+{"type":"session_start","id":"00000000-0000-4000-8000-000000000001","title":"TOP-SECRET-PROMPT-TEXT","cwd":"/workspace/orchestrator","owner":"owner-1","hostId":"host-1"}
+{"type":"message","id":"m0user","timestamp":"2026-11-11T10:00:00Z","message":{"role":"user","content":[{"type":"text","text":"TOP-SECRET-PROMPT-TEXT"}]}}
+{"type":"message","id":"m1assistant","timestamp":"2026-11-11T10:01:00Z","message":{"role":"assistant","modelId":"model-orchestrator","content":[{"type":"tool_use","id":"toolu_spawn","name":"SpawnAgent","input":{"prompt":"TOP-SECRET-PROMPT-TEXT"}}]}}
+{"type":"message","id":"m2user","timestamp":"2026-11-11T10:02:00Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_spawn","content":"spawned 00000000-0000-4000-8000-000000000002 TOP-SECRET-PROMPT-TEXT"}]}}

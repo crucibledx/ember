@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/crucibledx/ember/internal/harness"
 )
@@ -55,6 +56,7 @@ func emptyEnv(t *testing.T) harness.Env {
 	t.Helper()
 	return harness.Env{
 		Home: t.TempDir(),
+		FS:   fstest.MapFS{},
 		OS:   runtime.GOOS,
 		Getenv: func(string) string {
 			return ""

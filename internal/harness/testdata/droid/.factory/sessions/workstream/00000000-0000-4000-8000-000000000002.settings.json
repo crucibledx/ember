@@ -1,0 +1,1 @@
+{"model":"model-fallback","tokenUsage":{"inputTokens":10,"outputTokens":20,"cacheReadTokens":30,"cacheCreationTokens":40,"factoryCredits":1.25},"inclusiveTokenUsage":{"inputTokens":999,"outputTokens":999,"factoryCredits":99},"tags":[{"name":"mission-v2","metadata":{"kind":"agent","missionId":"w-1"}}]}
