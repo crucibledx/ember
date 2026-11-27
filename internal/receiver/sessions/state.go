@@ -3,6 +3,8 @@ package sessions
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,30 +18,70 @@ type fileState struct {
 	ModTime time.Time `json:"mtime"`
 }
 type runState struct {
-	Files        map[string]fileState `json:"files"`
-	Run          harness.Run          `json:"run"`
-	LastSegment  int                  `json:"last_segment"`
-	Tools        []string             `json:"tools"`
-	LogTime      time.Time            `json:"log_time"`
-	LogOrdinal   int                  `json:"log_ordinal"`
-	FinalMetrics bool                 `json:"final_metrics"`
+	Files           map[string]fileState `json:"files"`
+	Run             harness.Run          `json:"run"`
+	LastSegment     int                  `json:"last_segment"`
+	EmittedSegments []int                `json:"emitted_segments,omitempty"`
+	Tools           []string             `json:"tools"`
+	LogTime         time.Time            `json:"log_time"`
+	LogOrdinal      int                  `json:"log_ordinal"`
+	AcceptedLogs    []string             `json:"accepted_logs,omitempty"`
+	FinalMetrics    bool                 `json:"final_metrics"`
+	NativeTools     map[string]string    `json:"native_tools,omitempty"`
 }
 type diskState struct {
-	Version int                  `json:"version"`
-	Runs    map[string]*runState `json:"runs"`
-	Roots   tree.RootPins        `json:"roots"`
-	Native  map[string]time.Time `json:"native_first_seen"`
+	Version    int                  `json:"version"`
+	Runs       map[string]*runState `json:"runs"`
+	Roots      tree.RootPins        `json:"roots"`
+	Native     map[string]time.Time `json:"native_first_seen"`
+	NativeLast map[string]time.Time `json:"native_last_seen,omitempty"`
 }
 
-func loadState(home string) *diskState {
-	s := &diskState{Version: 1, Runs: map[string]*runState{}, Roots: tree.RootPins{Roots: map[string]string{}, Missing: map[string]time.Time{}}, Native: map[string]time.Time{}}
+func emptyState() *diskState {
+	return &diskState{Version: 1, Runs: map[string]*runState{}, Roots: tree.RootPins{Roots: map[string]string{}, Missing: map[string]time.Time{}}, Native: map[string]time.Time{}, NativeLast: map[string]time.Time{}}
+}
+func stateKey(harnessName, runID string) string {
+	return fmt.Sprintf("%d:%s%s", len(harnessName), harnessName, runID)
+}
+func loadState(home string) (*diskState, error) {
 	body, err := os.ReadFile(filepath.Join(home, "state", "sessions.json"))
-	if err != nil {
-		return s
+	if errors.Is(err, fs.ErrNotExist) {
+		return emptyState(), nil
 	}
-	var loaded diskState
-	if json.Unmarshal(body, &loaded) != nil || loaded.Version != 1 || loaded.Runs == nil {
-		return s
+	if err != nil {
+		return nil, fmt.Errorf("read session state: %w", err)
+	}
+	loaded := &diskState{}
+	if err := json.Unmarshal(body, loaded); err != nil {
+		return nil, fmt.Errorf("decode session state: %w", err)
+	}
+	if loaded.Version != 1 || loaded.Runs == nil {
+		return nil, errors.New("decode session state: unsupported schema or null runs")
+	}
+	for key, state := range loaded.Runs {
+		if state == nil || state.Run.Harness == "" || state.Run.SessionID == "" {
+			return nil, fmt.Errorf("decode session state: invalid run %q", key)
+		}
+		qualified := stateKey(state.Run.Harness, state.Run.SessionID)
+		if key != qualified {
+			if key != state.Run.SessionID {
+				return nil, fmt.Errorf("decode session state: mismatched run key %q", key)
+			}
+			delete(loaded.Runs, key)
+			loaded.Runs[qualified] = state
+			for nativeKey, native := range loaded.Native {
+				if nativeKey == key {
+					loaded.Native[qualified] = native
+					delete(loaded.Native, nativeKey)
+				}
+			}
+			for nativeKey, native := range loaded.NativeLast {
+				if nativeKey == key {
+					loaded.NativeLast[qualified] = native
+					delete(loaded.NativeLast, nativeKey)
+				}
+			}
+		}
 	}
 	if loaded.Roots.Roots == nil {
 		loaded.Roots.Roots = map[string]string{}
@@ -50,23 +92,26 @@ func loadState(home string) *diskState {
 	if loaded.Native == nil {
 		loaded.Native = map[string]time.Time{}
 	}
-	return &loaded
+	if loaded.NativeLast == nil {
+		loaded.NativeLast = map[string]time.Time{}
+	}
+	return loaded, nil
 }
 func saveState(home string, state *diskState) error {
 	dir := filepath.Join(home, "state")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
+		return fmt.Errorf("create state directory: %w", err)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return err
+		return fmt.Errorf("secure state directory: %w", err)
 	}
 	body, err := json.Marshal(state)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode session state: %w", err)
 	}
 	file, err := os.CreateTemp(dir, ".sessions-*.json")
 	if err != nil {
-		return err
+		return fmt.Errorf("create session state: %w", err)
 	}
 	name := file.Name()
 	defer func() { _ = os.Remove(name) }()
@@ -80,8 +125,8 @@ func saveState(home string, state *diskState) error {
 	if err == nil {
 		err = os.Rename(name, filepath.Join(dir, "sessions.json"))
 	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	if err != nil {
+		return fmt.Errorf("write session state: %w", err)
 	}
 	return nil
 }

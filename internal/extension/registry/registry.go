@@ -23,9 +23,12 @@ type Snapshot struct {
 	ToolSpans                               map[string]SpanRef
 	Idle                                    time.Duration
 	LastRecord                              time.Time
+	StartedBy                               string
+	WorkstreamID                            string
+	Active                                  []string
 }
 type Source interface {
-	Resolve(context.Context, Key, time.Time) (harness.Run, error)
+	Resolve(context.Context, Key, time.Time) (Snapshot, error)
 }
 type parent struct {
 	key  Key
@@ -33,7 +36,6 @@ type parent struct {
 }
 type resolveCall struct {
 	done chan struct{}
-	run  harness.Run
 	err  error
 }
 
@@ -91,6 +93,7 @@ func copySnapshot(in Snapshot) Snapshot {
 	out := in
 	out.Run = copyRun(in.Run)
 	out.Segments = append([]tree.Segment(nil), in.Segments...)
+	out.Active = append([]string(nil), in.Active...)
 	out.ToolSpans = make(map[string]SpanRef, len(in.ToolSpans))
 	for k, v := range in.ToolSpans {
 		out.ToolSpans[k] = v
@@ -200,17 +203,18 @@ func (r *Registry) Resolve(ctx context.Context, key Key, after time.Time) (Snaps
 	r.inflight[key] = call
 	r.lastResolve[key] = time.Now()
 	r.mu.Unlock()
-	call.run, call.err = source.Resolve(ctx, key, after)
-	if call.err == nil {
-		r.Put(Snapshot{Run: call.run, LastRecord: tree.LastRecord(call.run)})
+	snapshot, err := source.Resolve(ctx, key, after)
+	if err == nil {
+		r.Put(snapshot)
 	}
 	r.mu.Lock()
 	delete(r.inflight, key)
+	call.err = err
 	close(call.done)
 	r.mu.Unlock()
-	if call.err != nil {
-		return Snapshot{}, call.err
+	if err != nil {
+		return Snapshot{}, err
 	}
-	snapshot, _ := r.Get(key)
+	snapshot, _ = r.Get(key)
 	return snapshot, nil
 }

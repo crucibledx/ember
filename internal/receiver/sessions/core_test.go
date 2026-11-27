@@ -21,10 +21,16 @@ import (
 
 type fakeAdapter struct {
 	run    harness.Run
+	name   string
 	parses atomic.Int64
 }
 
-func (a *fakeAdapter) Name() string                                             { return "fake" }
+func (a *fakeAdapter) Name() string {
+	if a.name != "" {
+		return a.name
+	}
+	return "fake"
+}
 func (a *fakeAdapter) Detect(harness.Env) harness.Detection                     { return harness.Detection{} }
 func (a *fakeAdapter) Setup(harness.Env, harness.SetupOptions) []harness.Change { return nil }
 func (a *fakeAdapter) Sessions(harness.Env) ([]harness.SessionRef, error) {
@@ -197,10 +203,17 @@ func TestEmitOnce(t *testing.T) {
 		if err := os.WriteFile(f.home+"/state/sessions.json", []byte("bad"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		f.core = f.newCore()
-		f.poll(t)
-		if f.adapter.parses.Load() != 2 {
-			t.Fatal("corrupt state was not recovered")
+		c := newCore(f.coreConfig(), []harness.Adapter{f.adapter})
+		c.registry = registry.New()
+		if err := c.start(f.home); err == nil {
+			t.Fatal("corrupt state was accepted")
+		}
+		f.resetCounts()
+		if err := c.Poll(context.Background()); err == nil {
+			t.Fatal("corrupt state poll was accepted")
+		}
+		if f.adapter.parses.Load() != 1 || f.traces.SpanCount() != 0 {
+			t.Fatal("corrupt state parsed or emitted")
 		}
 	})
 }
@@ -250,6 +263,7 @@ func TestNativeFirst(t *testing.T) {
 		if id == "" || linked || link.SpanID != "" {
 			t.Fatal("unexpected link without file emission")
 		}
+		r.Put(registry.Snapshot{Run: harness.Run{Harness: "fake", SessionID: "run"}, ToolSpans: map[string]registry.SpanRef{"old": {TraceID: "trace", SpanID: "file"}}})
 		if _, ok := r.ReserveFile(key, "old", time.Now(), time.Minute); !ok {
 			t.Fatal("reserve")
 		}
@@ -306,6 +320,7 @@ func TestReceiverLifecycleWithRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	receiver.(*sessionReceiver).core.adapters = nil
 	if err = receiver.Start(ctx, host); err != nil {
 		t.Fatal(err)
 	}
