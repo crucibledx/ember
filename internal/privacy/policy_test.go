@@ -21,16 +21,45 @@ func newTestPolicy(t *testing.T, cfg Config) *Policy {
 }
 
 func TestEveryEmberKeySurvives(t *testing.T) {
+	// Spec 0001 §8.1, maintained independently of the production allowlist.
+	contract := map[string][]string{
+		"resource": {"service.name", "service.version", "service.instance.id", "host.name", "os.type", "host.arch", "ember.hash_key.id"},
+		"segment": {"session.id", "gen_ai.operation.name", "gen_ai.conversation.id", "gen_ai.agent.name", "gen_ai.request.model",
+			"ember.harness", "ember.agent.kind", "ember.workstream.id", "ember.work.id", "ember.parent.session.id", "ember.parent.tool_call.id",
+			"ember.human.started_by", "ember.human.active", "ember.session.segment", "ember.agent.llm_turns", "ember.agent.tool_calls"},
+		"tool": {"session.id", "gen_ai.operation.name", "gen_ai.tool.name", "gen_ai.tool.call.id", "error.type", "ember.harness",
+			"ember.work.id", "ember.tool.incomplete", "ember.mcp.server", "ember.mcp.tool", "ember.spawned.session_ids", "ember.link.type"},
+		"log": {"event.name", "session.id", "gen_ai.agent.name", "gen_ai.request.model", "gen_ai.tool.name", "gen_ai.tool.call.id",
+			"error.type", "ember.harness", "ember.agent.kind", "ember.agent.status", "ember.workstream.id", "ember.work.id",
+			"ember.tool.duration_ms", "ember.tool.incomplete", "ember.llm.turn"},
+		"lineage": {"session.id", "ember.parent.session.id", "ember.root.session.id", "ember.agent.kind", "gen_ai.agent.name",
+			"ember.harness", "ember.workstream.id", "ember.work.id", "ember.human.started_by", "ember.human.active", "ember.agent.status", "ember.agent.children"},
+		"usage":       {"session.id", "ember.harness", "gen_ai.request.model", "gen_ai.token.type", "ember.workstream.id", "ember.work.id"},
+		"tool metric": {"session.id", "ember.harness", "gen_ai.tool.name", "ember.mcp.server", "ember.mcp.tool", "error.type", "ember.workstream.id", "ember.work.id"},
+		"native": {"ember.harness", "ember.agent.kind", "ember.workstream.id", "ember.work.id", "ember.human.started_by", "ember.original_trace_id",
+			"ember.mcp.server", "ember.mcp.tool", "ember.spawned.session_ids", "ember.hash_key.id", "ember.link.type"},
+	}
+	expected := map[string]bool{}
+	for _, keys := range contract {
+		for _, key := range keys {
+			expected[key] = true
+		}
+	}
+	actual := strings.Fields(emberKeys)
+	if len(actual) != len(expected) {
+		t.Fatalf("allowlist has %d keys, §8.1 has %d", len(actual), len(expected))
+	}
 	attrs := pcommon.NewMap()
-	for _, key := range strings.Fields(emberKeys) {
+	for key := range expected {
 		attrs.PutStr(key, "value")
 	}
-	dropped := newTestPolicy(t, Config{}).Filter(attrs)
-	if len(dropped) != 0 {
-		t.Fatalf("dropped Ember keys: %v", dropped)
+	if dropped := newTestPolicy(t, Config{}).Filter(attrs); len(dropped) != 0 || attrs.Len() != len(expected) {
+		t.Fatalf("§8.1 keys dropped: %v", dropped)
 	}
-	if attrs.Len() != len(strings.Fields(emberKeys)) {
-		t.Fatalf("attributes remaining = %d", attrs.Len())
+	for _, key := range actual {
+		if !expected[key] {
+			t.Errorf("allowlist key %q is absent from §8.1", key)
+		}
 	}
 }
 
@@ -129,6 +158,16 @@ func TestHumanIdentityHash(t *testing.T) {
 	}
 	if got := attrs.AsRaw(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("hashed attributes = %v, want %v", got, want)
+	}
+
+	attrs = pcommon.NewMap()
+	attrs.PutInt("user.id", 42)
+	attrs.PutInt("user.account_uuid", 43)
+	p = newTestPolicy(t, Config{HumanIdentity: HumanHash, HashKey: "test hash key",
+		OwnerKeys: []string{"user.id", "user.account_uuid"}, NativeAllow: []string{"user.id", "user.account_uuid"}})
+	wantDropped := map[string]int{"user.id": 1, "user.account_uuid": 1}
+	if dropped := p.Filter(attrs); !reflect.DeepEqual(dropped, wantDropped) || attrs.Len() != 0 {
+		t.Fatalf("non-string owner ids: drops=%v attrs=%v", dropped, attrs.AsRaw())
 	}
 }
 

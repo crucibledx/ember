@@ -7,6 +7,7 @@ import (
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 
+	"github.com/crucibledx/ember/internal/emit"
 	"github.com/crucibledx/ember/internal/extension/registry"
 	"github.com/crucibledx/ember/internal/harness"
 	"github.com/crucibledx/ember/internal/tree"
@@ -53,7 +54,7 @@ func TestReparent(t *testing.T) {
 		_ = child
 	})
 
-	t.Run("segment discovery and reparse", func(t *testing.T) {
+	t.Run("segment discovery", func(t *testing.T) {
 		p := newTestProcessor(harness.Mapping{})
 		seed := newTestProcessor(harness.Mapping{})
 		snapshot := testSnapshot(seed, "late")
@@ -77,18 +78,43 @@ func TestReparent(t *testing.T) {
 			t.Fatalf("discovery calls=%d parent=%s want=%s", calls, span.ParentSpanID(), segment)
 		}
 
-		old, _ := p.registry.Get(registry.Key{Harness: "synthetic", RunID: "late"})
-		old.LastRecord = testBase.Add(12 * time.Minute)
-		p.registry.Put(old)
-		snapshot.TraceID = tree.TraceID("reparsed-root")
-		snapshot.LastRecord = testBase.Add(time.Hour)
+	})
+
+	t.Run("newer children reparse without changing inbound placement", func(t *testing.T) {
+		p := newTestProcessor(harness.Mapping{})
+		snapshot := testSnapshot(p, "run")
+		snapshot.LastRecord = testBase.Add(2 * time.Minute)
+		snapshot.WorkID = "stale"
+		p.registry.Put(snapshot)
+		fresh := snapshot
+		fresh.TraceID = tree.TraceID("fresh-but-not-inbound-root")
+		calls := 0
+		p.resolveFn = func(_ context.Context, _ registry.Key, _ time.Time) (registry.Snapshot, error) {
+			calls++
+			p.registry.Put(fresh)
+			return fresh, nil
+		}
+		traces, resource := testTraces()
+		root := addSpan(resource, testTrace(7), testSpan(1), pcommon.SpanID{}, "root", "run")
+		root.SetStartTimestamp(pcommon.NewTimestampFromTime(testBase.Add(time.Minute)))
+		child := addSpan(resource, testTrace(7), testSpan(2), testSpan(1), "child", "")
+		child.SetStartTimestamp(pcommon.NewTimestampFromTime(testBase.Add(3 * time.Minute)))
+		fresh.WorkID = "fresh-in-batch"
+		processTestTraces(t, p, traces)
+		if calls != 1 || child.TraceID() != root.TraceID() || stringAttr(child.Attributes(), "ember.work.id") != "fresh-in-batch" {
+			t.Fatalf("in-batch reparse calls=%d work=%q", calls, stringAttr(child.Attributes(), "ember.work.id"))
+		}
+
+		stale := snapshot
+		p.registry.Put(stale)
+		fresh.WorkID = "fresh-later-cache"
 		later, laterResource := testTraces()
-		span = addSpan(laterResource, testTrace(3), testSpan(2), pcommon.SpanID{}, "newer", "late")
-		span.SetStartTimestamp(pcommon.NewTimestampFromTime(testBase.Add(13 * time.Minute)))
+		laterChild := addSpan(laterResource, testTrace(7), testSpan(3), testSpan(1), "later", "")
+		laterChild.SetStartTimestamp(pcommon.NewTimestampFromTime(testBase.Add(4 * time.Minute)))
 		processTestTraces(t, p, later)
-		want, _ := decodeTrace(snapshot.TraceID)
-		if got := laterResource.ScopeSpans().At(0).Spans().At(0).TraceID(); got != want || calls != 2 {
-			t.Fatalf("reparse calls=%d trace=%s want=%s", calls, got, want)
+		if calls != 2 || laterChild.TraceID() != root.TraceID() || laterChild.ParentSpanID() != root.SpanID() ||
+			stringAttr(laterChild.Attributes(), "ember.work.id") != "fresh-later-cache" {
+			t.Fatalf("later-cache reparse calls=%d trace=%s parent=%s", calls, laterChild.TraceID(), laterChild.ParentSpanID())
 		}
 	})
 
@@ -124,6 +150,26 @@ func TestReparent(t *testing.T) {
 		if key, call, ok := p.registry.Parent(registry.Key{Harness: "synthetic", RunID: "parent/child"}); !ok || key.RunID != "parent" || call != "parent-call" {
 			t.Fatalf("recorded parent = %v %q %v", key, call, ok)
 		}
+
+		other, otherResource := testTraces()
+		otherResource.Resource().Attributes().PutStr("service.name", "other-service")
+		otherSpan := addSpan(otherResource, testTrace(44), testSpan(4), testSpan(9), "other", "unmatched")
+		processTestTraces(t, p, other)
+		if otherSpan.TraceID() != testTrace(44) || otherSpan.SpanID() != testSpan(4) || otherSpan.ParentSpanID() != testSpan(9) ||
+			registryCounter(p.registry, "unresolved") != 1 {
+			t.Fatal("unmatched service changed structure or unresolved count")
+		}
+
+		fallbackProcessor := newTestProcessor(harness.Mapping{})
+		fallback := testSnapshot(fallbackProcessor, "parent")
+		fallbackTraces, fallbackResource := testTraces()
+		fallbackSpan := addSpan(fallbackResource, testTrace(45), testSpan(1), pcommon.SpanID{}, "fallback", "parent")
+		fallbackSpan.Attributes().PutStr("agent.id", "missing")
+		processTestTraces(t, fallbackProcessor, fallbackTraces)
+		wantFallback, _ := decodeTrace(fallback.TraceID)
+		if fallbackSpan.TraceID() != wantFallback || registryCounter(fallbackProcessor.registry, "unresolved") != 0 {
+			t.Fatal("failed composite run did not fall back to its base session")
+		}
 	})
 
 	t.Run("external and moved inbound parents", func(t *testing.T) {
@@ -137,16 +183,53 @@ func TestReparent(t *testing.T) {
 			t.Fatal("external inbound parent was not preserved and enriched")
 		}
 
-		testSnapshot(p, "parent")
-		testSnapshot(p, "child")
+		parent := testSnapshot(p, "parent")
+		parent.Run.WorkstreamID = ""
+		parent.Run.Status = harness.StatusCompleted
+		parent.Run.EndedAt = testBase.Add(time.Minute)
+		parent.Run.ToolCalls = []harness.ToolCall{{ID: "spawn", Name: "task"}}
+		p.registry.Put(parent)
+		childSnapshot := testSnapshot(p, "child")
+		childSnapshot.Run.WorkstreamID = ""
+		childSnapshot.Run.Status = harness.StatusCompleted
+		childSnapshot.Run.EndedAt = testBase.Add(time.Minute)
+		p.registry.Put(childSnapshot)
 		first, firstResource := testTraces()
-		addSpan(firstResource, testTrace(5), testSpan(1), pcommon.SpanID{}, "parent", "parent")
+		parentSpan := addSpan(firstResource, testTrace(5), testSpan(1), pcommon.SpanID{}, "tool parent", "parent")
+		parentSpan.Attributes().PutStr("call.id", "spawn")
 		processTestTraces(t, p, first)
 		second, secondResource := testTraces()
 		child := addSpan(secondResource, testTrace(5), testSpan(2), testSpan(1), "child", "child")
 		processTestTraces(t, p, second)
-		if child.TraceID() != firstResource.ScopeSpans().At(0).Spans().At(0).TraceID() || child.ParentSpanID() != testSpan(1) {
-			t.Fatal("child did not follow moved inbound parent")
+		toolID, _ := decodeSpan(tree.ToolSpanID("synthetic", "spawn"))
+		if child.TraceID() != parentSpan.TraceID() || child.ParentSpanID() != toolID {
+			t.Fatal("child did not follow moved inbound tool parent")
+		}
+		parentKey, call, ok := p.registry.Parent(registry.Key{Harness: "synthetic", RunID: "child"})
+		if !ok {
+			t.Fatal("moved inbound parent was not recorded")
+		}
+		childSnapshot.Run.Parent = &harness.ParentRef{SessionID: parentKey.RunID, ToolCallID: call}
+		forest := tree.BuildForest([]harness.Run{parent.Run, childSnapshot.Run}, tree.Options{
+			Now: testBase.Add(time.Hour), Idle: time.Minute, Roots: &tree.RootPins{},
+		})
+		fileTraces := emit.Traces(forest, emit.Config{})
+		found := false
+		for i := 0; i < fileTraces.ResourceSpans().Len(); i++ {
+			spans := fileTraces.ResourceSpans().At(i).ScopeSpans().At(0).Spans()
+			for j := 0; j < spans.Len(); j++ {
+				segment := spans.At(j)
+				number, _ := segment.Attributes().Get("ember.session.segment")
+				if stringAttr(segment.Attributes(), "session.id") == "child" && number.Int() == 1 {
+					found = true
+					if segment.TraceID() != parentSpan.TraceID() || segment.ParentSpanID() != toolID {
+						t.Fatalf("file child placement = %s/%s want %s/%s parent=%v", segment.TraceID(), segment.ParentSpanID(), parentSpan.TraceID(), toolID, childSnapshot.Run.Parent)
+					}
+				}
+			}
+		}
+		if !found {
+			t.Fatal("file-built child segment was not emitted")
 		}
 	})
 

@@ -12,25 +12,25 @@ import (
 )
 
 type spanEntry struct {
-	span      ptrace.Span
-	resource  pcommon.Resource
-	adapter   harness.Adapter
-	mapping   harness.Mapping
-	registry  *registry.Registry
-	key       registry.Key
-	snapshot  registry.Snapshot
-	known     bool
-	session   string
-	agent     string
-	call      string
-	oldTrace  pcommon.TraceID
-	oldSpan   pcommon.SpanID
-	parent    int
-	triedOwn  bool
-	nativeID  pcommon.SpanID
-	fileLink  *registry.SpanRef
-	placement placement
-	state     uint8
+	span                      ptrace.Span
+	resource                  pcommon.Resource
+	adapter                   harness.Adapter
+	mapping                   harness.Mapping
+	registry                  *registry.Registry
+	key                       registry.Key
+	snapshot                  registry.Snapshot
+	known                     bool
+	session                   string
+	agent                     string
+	call                      string
+	oldTrace                  pcommon.TraceID
+	oldSpan                   pcommon.SpanID
+	parent                    int
+	triedComposite, triedBase bool
+	nativeID                  pcommon.SpanID
+	fileLink                  *registry.SpanRef
+	placement                 placement
+	state                     uint8
 }
 
 type traceGroup struct {
@@ -152,46 +152,50 @@ func (p *emberProcessor) resolveGroup(ctx context.Context, entries []*spanEntry)
 	if root != nil {
 		for _, entry := range entries {
 			if !entry.known && entry.session == "" {
-				entry.key, entry.snapshot, entry.known = root.key, root.snapshot, true
+				p.selectRun(ctx, entry, root.key)
 			}
 		}
 	}
 }
 
+func (p *emberProcessor) selectRun(ctx context.Context, entry *spanEntry, key registry.Key) bool {
+	snapshot, ok := p.resolve(ctx, key, entry.span.StartTimestamp().AsTime())
+	if ok {
+		entry.key, entry.snapshot, entry.known = key, snapshot, true
+	}
+	return ok
+}
+
 func (p *emberProcessor) resolveEntry(ctx context.Context, entry *spanEntry, entries []*spanEntry) bool {
-	if entry.agent != "" && !entry.triedOwn {
-		entry.triedOwn = true
+	if entry.session != "" && entry.agent != "" && !entry.triedComposite {
+		entry.triedComposite = true
 		key := registry.Key{Harness: entry.adapter.Name(), RunID: entry.session + "/" + entry.agent}
-		if snapshot, ok := p.resolve(ctx, key, entry.span.StartTimestamp().AsTime()); ok {
-			entry.key, entry.snapshot, entry.known = key, snapshot, true
+		if p.selectRun(ctx, entry, key) {
 			return true
 		}
 	}
 	if entry.call != "" {
 		if owner, ok := p.registry.ToolOwner(entry.call); ok && owner.Harness == entry.adapter.Name() && candidateMatches(entry.session, owner) {
-			if snapshot, ok := p.resolve(ctx, owner, entry.span.StartTimestamp().AsTime()); ok {
-				entry.key, entry.snapshot, entry.known = owner, snapshot, true
+			if p.selectRun(ctx, entry, owner) {
 				return true
 			}
 		}
 	}
 	if entry.parent >= 0 && entries[entry.parent].known && candidateMatches(entry.session, entries[entry.parent].key) {
-		entry.key, entry.snapshot, entry.known = entries[entry.parent].key, entries[entry.parent].snapshot, true
-		return true
+		if p.selectRun(ctx, entry, entries[entry.parent].key) {
+			return true
+		}
 	}
 	if entry.parent == -1 && !entry.span.ParentSpanID().IsEmpty() {
 		if parent, ok := p.cache.get(spanKey{trace: entry.oldTrace, span: entry.span.ParentSpanID()}); ok && candidateMatches(entry.session, parent.run) {
-			entry.key, entry.snapshot, entry.known = parent.run, parent.snapshot, true
-			return true
+			if p.selectRun(ctx, entry, parent.run) {
+				return true
+			}
 		}
 	}
-	if entry.agent == "" && entry.session != "" && !entry.triedOwn {
-		entry.triedOwn = true
-		key := registry.Key{Harness: entry.adapter.Name(), RunID: entry.session}
-		if snapshot, ok := p.resolve(ctx, key, entry.span.StartTimestamp().AsTime()); ok {
-			entry.key, entry.snapshot, entry.known = key, snapshot, true
-			return true
-		}
+	if entry.session != "" && !entry.triedBase {
+		entry.triedBase = true
+		return p.selectRun(ctx, entry, registry.Key{Harness: entry.adapter.Name(), RunID: entry.session})
 	}
 	return false
 }

@@ -2,12 +2,17 @@ package ember
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net"
+	"net/http"
 	"reflect"
 	"regexp"
 	"testing"
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/extension/extensiontest"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/processor/processortest"
@@ -117,4 +122,72 @@ func stringAttr(attrs pcommon.Map, key string) string {
 
 func registryCounter(r *registry.Registry, name string) uint64 {
 	return reflect.ValueOf(r).Elem().FieldByName(name).Uint()
+}
+
+type registryHost struct {
+	extensions map[component.ID]component.Component
+}
+
+func (h registryHost) GetExtensions() map[component.ID]component.Component       { return h.extensions }
+func (registryHost) GetFactory(component.Kind, component.Type) component.Factory { return nil }
+
+func startRegistry(t *testing.T, p *emberProcessor) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	factory := registry.NewFactory()
+	cfg := factory.CreateDefaultConfig().(*registry.Config)
+	cfg.Endpoint = endpoint
+	extension, err := factory.Create(context.Background(), extensiontest.NewNopSettings(factory.Type()), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := extension.Start(context.Background(), registryHost{}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := extension.Shutdown(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	p.registry = nil
+	host := registryHost{extensions: map[component.ID]component.Component{component.MustNewID("ember"): extension}}
+	if err := p.Start(context.Background(), host); err != nil {
+		t.Fatal(err)
+	}
+	return endpoint
+}
+
+type statusResponse struct {
+	Dropped []struct {
+		Key   string `json:"key"`
+		Count uint64 `json:"count"`
+	} `json:"dropped"`
+}
+
+func getStatus(t *testing.T, endpoint string) ([]byte, statusResponse) {
+	t.Helper()
+	response, err := (&http.Client{Timeout: 5 * time.Second}).Get("http://" + endpoint + "/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("GET /status status = %s", response.Status)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status statusResponse
+	if err := json.Unmarshal(body, &status); err != nil {
+		t.Fatal(err)
+	}
+	return body, status
 }

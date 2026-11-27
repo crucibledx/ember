@@ -86,7 +86,11 @@ func (p *Policy) Filter(attrs pcommon.Map) map[string]int {
 			dropped[key]++
 			return true
 		}
-		if p.human == HumanHash && p.isHuman(key) && value.Type() == pcommon.ValueTypeStr {
+		if p.human == HumanHash && p.isHuman(key) {
+			if value.Type() != pcommon.ValueTypeStr {
+				dropped[key]++
+				return true
+			}
 			value.SetStr(hashHumanList(p.hashKey, value.Str()))
 		}
 		return false
