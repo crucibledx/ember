@@ -70,6 +70,7 @@ func (c *core) restore() {
 		for call, nativeID := range s.NativeTools {
 			c.registry.RestoreNativeTool(key, call, nativeID)
 		}
+		c.registry.NoteWorkID(key, s.NativeWorkID)
 		if at, ok := c.state.Native[id]; ok {
 			c.registry.RestoreNativeFirst(key, at)
 		}
@@ -130,6 +131,7 @@ func (c *core) Poll(ctx context.Context) error {
 	}
 	c.applyParents()
 	c.applyRegistryOwners()
+	c.applyRegistryWorkIDs()
 	forest := c.forest(now)
 	c.publish(forest)
 	if c.traces != nil {
@@ -241,12 +243,24 @@ func (c *core) applyRegistryOwners() {
 		}
 	}
 }
+func (c *core) applyRegistryWorkIDs() {
+	for _, state := range c.state.Runs {
+		key := registry.Key{Harness: state.Run.Harness, RunID: state.Run.SessionID}
+		if workID, ok := c.registry.WorkID(key); ok {
+			state.NativeWorkID = workID
+		}
+	}
+}
 func (c *core) forest(now time.Time) *tree.Forest {
 	runs := make([]harness.Run, 0, len(c.state.Runs))
+	explicit := make(map[string]string, len(c.state.Runs))
 	for _, s := range c.state.Runs {
 		runs = append(runs, s.Run)
+		if s.NativeWorkID != "" {
+			explicit[stateKey(s.Run.Harness, s.Run.SessionID)] = s.NativeWorkID
+		}
 	}
-	return tree.BuildForest(runs, tree.Options{Now: now, Idle: c.config.Idle, Roots: &c.state.Roots})
+	return tree.BuildForest(runs, tree.Options{Now: now, Idle: c.config.Idle, Roots: &c.state.Roots, Work: tree.WorkIDOptions{Explicit: explicit}})
 }
 func (c *core) publish(forest *tree.Forest) {
 	for _, node := range forest.Ordered() {
@@ -273,6 +287,7 @@ func (c *core) Resolve(ctx context.Context, key registry.Key, after time.Time) (
 	}
 	c.applyParents()
 	c.applyRegistryOwners()
+	c.applyRegistryWorkIDs()
 	c.publish(c.forest(c.now()))
 	if err := saveState(c.home, c.state); err != nil {
 		return registry.Snapshot{}, err

@@ -1,0 +1,10 @@
+type: ember
+status:
+  class: processor
+  stability:
+    development: [traces, metrics, logs]
+tests:
+  skip_lifecycle: true
+  config:
+    privacy:
+      hash_key: lifecycle-test-key
