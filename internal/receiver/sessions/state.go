@@ -18,16 +18,17 @@ type fileState struct {
 	ModTime time.Time `json:"mtime"`
 }
 type runState struct {
-	Files           map[string]fileState `json:"files"`
-	Run             harness.Run          `json:"run"`
-	LastSegment     int                  `json:"last_segment"`
-	EmittedSegments []int                `json:"emitted_segments,omitempty"`
-	Tools           []string             `json:"tools"`
-	LogTime         time.Time            `json:"log_time"`
-	LogOrdinal      int                  `json:"log_ordinal"`
-	AcceptedLogs    []string             `json:"accepted_logs,omitempty"`
-	FinalMetrics    bool                 `json:"final_metrics"`
-	NativeTools     map[string]string    `json:"native_tools,omitempty"`
+	Files                map[string]fileState `json:"files"`
+	Run                  harness.Run          `json:"run"`
+	LastSegment          int                  `json:"last_segment"`
+	EmittedSegments      []int                `json:"emitted_segments,omitempty"`
+	Tools                []string             `json:"tools"`
+	LogTime              time.Time            `json:"log_time"`
+	LogOrdinal           int                  `json:"log_ordinal"`
+	AcceptedLogs         []string             `json:"accepted_logs,omitempty"`
+	FinalMetrics         bool                 `json:"final_metrics"`
+	FinalMetricSignature string               `json:"final_metric_signature,omitempty"`
+	NativeTools          map[string]string    `json:"native_tools,omitempty"`
 }
 type diskState struct {
 	Version    int                  `json:"version"`
