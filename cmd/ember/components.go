@@ -3,6 +3,8 @@
 package main
 
 import (
+	registry "github.com/crucibledx/ember/internal/extension/registry"
+	sessions "github.com/crucibledx/ember/internal/receiver/sessions"
 	bearertokenauthextension "github.com/open-telemetry/opentelemetry-collector-contrib/extension/bearertokenauthextension"
 	deltatocumulativeprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor"
 	"go.opentelemetry.io/collector/component"
@@ -43,22 +45,26 @@ func components() (otelcol.Factories, error) {
 
 	factories.Extensions, err = otelcol.MakeFactoryMap[extension.Factory](
 		bearertokenauthextension.NewFactory(),
+		registry.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err
 	}
 	factories.ExtensionModules = makeModulesMap(factories.Extensions, map[component.Type]string{
 		bearertokenauthextension.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/extension/bearertokenauthextension v0.166.0",
+		registry.NewFactory().Type():                 "github.com/crucibledx/ember v0.0.0",
 	})
 
 	factories.Receivers, err = otelcol.MakeFactoryMap[receiver.Factory](
 		otlpreceiver.NewFactory(),
+		sessions.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err
 	}
 	factories.ReceiverModules = makeModulesMap(factories.Receivers, map[component.Type]string{
 		otlpreceiver.NewFactory().Type(): "go.opentelemetry.io/collector/receiver/otlpreceiver v0.166.0",
+		sessions.NewFactory().Type():     "github.com/crucibledx/ember v0.0.0",
 	})
 
 	factories.Exporters, err = otelcol.MakeFactoryMap[exporter.Factory](
