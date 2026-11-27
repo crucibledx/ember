@@ -91,15 +91,17 @@ jobs:
       - name: The version check accepts only SemVer
         run: scripts/check-version_test.sh
       - name: make passes release inputs to the checks literally
-        # Single quotes keep the shell from expanding these; make must not expand them either.
+        # Single quotes keep the shell from expanding these; make must not expand them either. If it did, $$ would become
+        # $, so the injected touch would create the marker checked below.
         run: |
           fail() { echo "$1" >&2; exit 1; }
           make -s release-inputs VERSION=1.2.3 || fail "rejected VERSION=1.2.3"
-          for bad in 'VERSION=$(shell touch "$RUNNER_TEMP/ran")1.2.3' 'VERSION=$x' 'MAX_BINARY_MIB=$(shell touch "$RUNNER_TEMP/ran")80'; do
+          for bad in 'VERSION=$(shell touch "$$RUNNER_TEMP/ran")1.2.3' 'VERSION=$x' 'MAX_BINARY_MIB=$(shell touch "$$RUNNER_TEMP/ran")80'; do
             if make -s release-inputs "$bad"; then fail "accepted $bad"; fi
           done
-          if MAX_BINARY_MIB='$(shell touch "$RUNNER_TEMP/ran")80' make -s release-inputs; then fail "accepted MAX_BINARY_MIB from the environment"; fi
-          VERSION='$(shell touch "$RUNNER_TEMP/ran")1.2.3' make -n build >/dev/null
+          if MAX_BINARY_MIB='$(shell touch "$$RUNNER_TEMP/ran")80' make -s release-inputs; then fail "accepted MAX_BINARY_MIB from the environment"; fi
+          # Any recipe exports VERSION to its shell; golangci-lint-version is the cheapest one.
+          make -s golangci-lint-version 'VERSION=$(shell touch "$$RUNNER_TEMP/ran")1.2.3' >/dev/null
           test ! -e "$RUNNER_TEMP/ran" || fail "make ran a command from an input"
       - name: Build five targets, print sizes, enforce the size gate
         # bash runs with pipefail, so a failing build or size gate fails the step despite tee.
