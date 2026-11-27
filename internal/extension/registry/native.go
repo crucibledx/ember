@@ -123,6 +123,9 @@ func (r *Registry) NativeTool(key Key, callID, nativeID string) (string, SpanRef
 		r.nativeCalls[key] = map[string]string{}
 	}
 	r.nativeCalls[key][callID] = nativeID
+	if r.reserved[key][callID].SpanID != "" {
+		return nativeID, SpanRef{}, false
+	}
 	ref := r.emitted[key][callID]
 	if ref.TraceID == "" {
 		ref.TraceID = r.snaps[key].ToolSpans[callID].TraceID

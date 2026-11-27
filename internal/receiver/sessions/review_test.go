@@ -20,6 +20,7 @@ import (
 
 	"github.com/crucibledx/ember/internal/extension/registry"
 	"github.com/crucibledx/ember/internal/harness"
+	"github.com/crucibledx/ember/internal/tree"
 )
 
 type pathAdapter struct {
@@ -308,6 +309,34 @@ func TestHarnessQualifiedRunState(t *testing.T) {
 	f.poll(t)
 	if len(f.core.state.Runs) != 2 || f.traces.SpanCount() != 4 {
 		t.Fatalf("runs=%d spans=%d", len(f.core.state.Runs), f.traces.SpanCount())
+	}
+}
+func TestStateMigratesRootPins(t *testing.T) {
+	state := emptyState()
+	for _, name := range []string{"fake", "other"} {
+		state.Runs[stateKey(name, "run")] = &runState{Run: harness.Run{Harness: name, SessionID: "run"}}
+	}
+	state.Roots.Roots["run"] = tree.SessionRootKey("fake", "run")
+	at := time.Unix(1000, 0)
+	state.Roots.Missing["run"] = at
+	home := t.TempDir()
+	if err := saveState(home, state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadState(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Roots.Roots[stateKey("fake", "run")] != tree.SessionRootKey("fake", "run") {
+		t.Fatal("legacy root was not qualified")
+	}
+	if _, ok := loaded.Roots.Roots[stateKey("other", "run")]; ok {
+		t.Fatal("legacy root leaked to another harness")
+	}
+	for _, name := range []string{"fake", "other"} {
+		if !loaded.Roots.Missing[stateKey(name, "run")].Equal(at) {
+			t.Fatalf("missing-since not migrated for %s", name)
+		}
 	}
 }
 func TestStateValidationAndRenameErrors(t *testing.T) {

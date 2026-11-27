@@ -41,7 +41,7 @@ func emptyState() *diskState {
 	return &diskState{Version: 1, Runs: map[string]*runState{}, Roots: tree.RootPins{Roots: map[string]string{}, Missing: map[string]time.Time{}}, Native: map[string]time.Time{}, NativeLast: map[string]time.Time{}}
 }
 func stateKey(harnessName, runID string) string {
-	return fmt.Sprintf("%d:%s%s", len(harnessName), harnessName, runID)
+	return tree.RootRunID(harnessName, runID)
 }
 func loadState(home string) (*diskState, error) {
 	body, err := os.ReadFile(filepath.Join(home, "state", "sessions.json"))
@@ -83,12 +83,7 @@ func loadState(home string) (*diskState, error) {
 			}
 		}
 	}
-	if loaded.Roots.Roots == nil {
-		loaded.Roots.Roots = map[string]string{}
-	}
-	if loaded.Roots.Missing == nil {
-		loaded.Roots.Missing = map[string]time.Time{}
-	}
+	migrateRootPins(loaded)
 	if loaded.Native == nil {
 		loaded.Native = map[string]time.Time{}
 	}
@@ -96,6 +91,25 @@ func loadState(home string) (*diskState, error) {
 		loaded.NativeLast = map[string]time.Time{}
 	}
 	return loaded, nil
+}
+func migrateRootPins(state *diskState) {
+	roots := map[string]string{}
+	missing := map[string]time.Time{}
+	for _, run := range state.Runs {
+		harnessName, id := run.Run.Harness, run.Run.SessionID
+		key := stateKey(harnessName, id)
+		if root, ok := state.Roots.Roots[key]; ok {
+			roots[key] = root
+		} else if root, ok := state.Roots.Roots[id]; ok && root == tree.SessionRootKey(harnessName, id) {
+			roots[key] = root
+		}
+		if at, ok := state.Roots.Missing[key]; ok {
+			missing[key] = at
+		} else if at, ok := state.Roots.Missing[id]; ok {
+			missing[key] = at
+		}
+	}
+	state.Roots.Roots, state.Roots.Missing = roots, missing
 }
 func saveState(home string, state *diskState) error {
 	dir := filepath.Join(home, "state")

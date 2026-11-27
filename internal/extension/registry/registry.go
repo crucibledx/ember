@@ -118,7 +118,7 @@ func (r *Registry) Put(snapshot Snapshot) {
 	}
 	r.snaps[key] = snapshot
 	for _, call := range snapshot.Run.ToolCalls {
-		r.owners[call.ID] = key
+		r.owners[ownerKey(key.Harness, call.ID)] = key
 	}
 }
 func (r *Registry) Get(key Key) (Snapshot, bool) {
@@ -136,10 +136,13 @@ func (r *Registry) Segment(key Key, at time.Time) (tree.Segment, bool) {
 	}
 	return tree.SegmentAt(s.Segments, at, s.Idle)
 }
-func (r *Registry) ToolOwner(callID string) (Key, bool) {
+func ownerKey(harnessName, callID string) string {
+	return fmt.Sprintf("%d:%s%s", len(harnessName), harnessName, callID)
+}
+func (r *Registry) ToolOwner(harnessName, callID string) (Key, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	k, ok := r.owners[callID]
+	k, ok := r.owners[ownerKey(harnessName, callID)]
 	return k, ok
 }
 func (r *Registry) ToolCall(key Key, id string) (harness.ToolCall, bool) {

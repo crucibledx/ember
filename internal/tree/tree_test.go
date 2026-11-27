@@ -111,6 +111,21 @@ func TestForest(t *testing.T) {
 		eq(t, heldParent.Nodes["grandchild"].TraceID(), heldParent.Nodes["orphan"].TraceID())
 		eq(t, len(heldParent.Held), 1)
 	})
+	t.Run("orphan pins are harness qualified", func(t *testing.T) {
+		one, two := testRun("shared"), testRun("shared")
+		one.Harness, two.Harness = "one", "two"
+		one.Parent, two.Parent = &harness.ParentRef{SessionID: "missing"}, &harness.ParentRef{SessionID: "missing"}
+		o := options()
+		o.Now = start
+		tree.BuildForest([]harness.Run{one, two}, o)
+		o.Now = start.Add(time.Minute)
+		forest := tree.BuildForest([]harness.Run{one, two}, o)
+		eq(t, forest.Nodes["one/shared"].RootKey, tree.SessionRootKey("one", "shared"))
+		eq(t, forest.Nodes["two/shared"].RootKey, tree.SessionRootKey("two", "shared"))
+		again := tree.BuildForest([]harness.Run{one, two}, o)
+		eq(t, again.Nodes["one/shared"].TraceID(), forest.Nodes["one/shared"].TraceID())
+		eq(t, again.Nodes["two/shared"].TraceID(), forest.Nodes["two/shared"].TraceID())
+	})
 	t.Run("workstream orphan root and no cross trace parent", func(t *testing.T) {
 		agent := family()[1]
 		orphan := tree.BuildForest([]harness.Run{agent}, options())
