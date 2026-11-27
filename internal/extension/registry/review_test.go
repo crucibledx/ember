@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/collector/extension/extensiontest"
 
 	"github.com/crucibledx/ember/internal/harness"
+	"github.com/crucibledx/ember/internal/tree"
 )
 
 func TestNativeToolLinksOnlyCommittedSpans(t *testing.T) {
@@ -20,10 +21,22 @@ func TestNativeToolLinksOnlyCommittedSpans(t *testing.T) {
 		t.Fatal("reserve")
 	}
 	id, ref, linked := r.NativeTool(key, "call", "native")
-	if id == "" || linked || ref.TraceID != "" {
-		t.Fatal("reserved span linked")
+	if id != "native" || linked || ref.TraceID != "" {
+		t.Fatal("reserved span changed the native id or linked")
 	}
 	r.RollbackFile(key, "call")
+	if _, ok := r.ReserveFile(key, "inflight", time.Now(), time.Minute); !ok {
+		t.Fatal("reserve in-flight")
+	}
+	id, _, linked = r.NativeTool(key, "inflight", "native-inflight")
+	r.CommitFile(key, "inflight")
+	if id == tree.ToolSpanID(key.Harness, "inflight") || linked {
+		t.Fatal("in-flight native and file spans share an id")
+	}
+	r.Put(Snapshot{Run: harness.Run{Harness: "fake", SessionID: "run"}, ToolSpans: map[string]SpanRef{"inflight": {TraceID: "trace", SpanID: "file"}}})
+	if _, ref, linked = r.NativeTool(key, "inflight", "native-later"); !linked || ref.TraceID != "trace" {
+		t.Fatal("committed in-flight span not linked")
+	}
 	if _, ok := r.ReserveFile(key, "committed", time.Now(), time.Minute); !ok {
 		t.Fatal("reserve committed")
 	}
@@ -39,6 +52,18 @@ func TestNativeToolLinksOnlyCommittedSpans(t *testing.T) {
 	r.Put(Snapshot{Run: harness.Run{Harness: "fake", SessionID: "run"}, ToolSpans: map[string]SpanRef{"restart": {TraceID: "trace", SpanID: "file"}}})
 	if _, ref, linked = r.NativeTool(key, "restart", "native"); !linked || ref.TraceID != "trace" {
 		t.Fatal("restored emitted span not linked after snapshot")
+	}
+}
+func TestToolOwnerIsHarnessQualified(t *testing.T) {
+	r := New()
+	for _, name := range []string{"fake", "other"} {
+		r.Put(Snapshot{Run: harness.Run{Harness: name, SessionID: name + "-run", ToolCalls: []harness.ToolCall{{ID: "shared"}}}})
+	}
+	for _, name := range []string{"fake", "other"} {
+		owner, ok := r.ToolOwner(name, "shared")
+		if !ok || owner.Harness != name {
+			t.Fatalf("owner for %s = %#v, %v", name, owner, ok)
+		}
 	}
 }
 func TestNativeLastSeenMonotonic(t *testing.T) {
