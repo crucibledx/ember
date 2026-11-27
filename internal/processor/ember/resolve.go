@@ -87,7 +87,7 @@ func (p *emberProcessor) resolveData(ctx context.Context, adapter harness.Adapte
 		key.RunID += "/" + agent
 	}
 	if call != "" && agent == "" {
-		if owner, ok := p.registry.ToolOwner(call); ok && owner.Harness == adapter.Name() && candidateMatches(session, owner) {
+		if owner, ok := p.registry.ToolOwner(adapter.Name(), call); ok && owner.Harness == adapter.Name() && candidateMatches(session, owner) {
 			if snapshot, ok := p.resolve(ctx, owner, at); ok {
 				return snapshot, owner, true
 			}

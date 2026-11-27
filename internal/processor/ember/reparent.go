@@ -175,7 +175,7 @@ func (p *emberProcessor) resolveEntry(ctx context.Context, entry *spanEntry, ent
 		}
 	}
 	if entry.call != "" {
-		if owner, ok := p.registry.ToolOwner(entry.call); ok && owner.Harness == entry.adapter.Name() && candidateMatches(entry.session, owner) {
+		if owner, ok := p.registry.ToolOwner(entry.adapter.Name(), entry.call); ok && owner.Harness == entry.adapter.Name() && candidateMatches(entry.session, owner) {
 			if p.selectRun(ctx, entry, owner) {
 				return true
 			}
