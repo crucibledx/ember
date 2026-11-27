@@ -82,7 +82,7 @@ func BuildForest(runs []harness.Run, options Options) *Forest {
 		}
 	}
 	for _, node := range forest.Ordered() {
-		linkParent(forest, node)
+		linkParent(forest, node, options.Roots)
 	}
 	for _, node := range forest.Ordered() {
 		if node.Parent != nil && node.parent == nil {
@@ -97,11 +97,11 @@ func BuildForest(runs []harness.Run, options Options) *Forest {
 	}
 	for _, root := range forest.Roots {
 		rootSession := cmp.Or(root.RootSessionID, root.Run.SessionID)
-		assignLineage(root, root.RootKey, rootSession, "", options)
+		assignLineage(root, root.RootKey, rootSession, "", root.Detached, options)
 	}
 	return forest
 }
-func linkParent(forest *Forest, node *Node) {
+func linkParent(forest *Forest, node *Node, roots RootState) {
 	ref := node.Run.Parent
 	if ref == nil || ref.SessionID == node.Run.SessionID {
 		return
@@ -109,6 +109,10 @@ func linkParent(forest *Forest, node *Node) {
 	copyRef := *ref
 	node.Parent = &copyRef
 	if parent := forest.Nodes[ref.SessionID]; parent != nil {
+		if key, ok := roots.RootKey(node.Run.SessionID); ok {
+			node.RootKey, node.Detached = key, true
+			return
+		}
 		node.parent = parent
 		if node.Parent.ToolCallID == "" {
 			node.Parent.ToolCallID = spawningCall(parent.Run, node.Run.SessionID)
@@ -125,13 +129,13 @@ func spawningCall(parent harness.Run, childID string) string {
 	return ""
 }
 func resolveOrphan(forest *Forest, node *Node, options Options) {
+	if key, ok := options.Roots.RootKey(node.Run.SessionID); ok {
+		node.RootKey, node.Detached = key, true
+		return
+	}
 	if node.Run.WorkstreamID != "" {
 		node.RootKey = WorkstreamRootKey(node.Run.WorkstreamID)
 		node.RootSessionID = node.Parent.SessionID
-		return
-	}
-	if key, ok := options.Roots.RootKey(node.Run.SessionID); ok {
-		node.RootKey, node.Detached = key, true
 		return
 	}
 	since := options.Roots.MissingSince(node.Run.SessionID, options.Now)
@@ -144,7 +148,7 @@ func resolveOrphan(forest *Forest, node *Node, options Options) {
 	node.Detached = true
 	options.Roots.PinRoot(node.Run.SessionID, node.RootKey)
 }
-func assignLineage(node *Node, root, rootSession, inheritedWS string, options Options) {
+func assignLineage(node *Node, root, rootSession, inheritedWS string, preserveRoot bool, options Options) {
 	if root == "" {
 		root = SessionRootKey(node.Run.Harness, rootSession)
 	}
@@ -153,11 +157,12 @@ func assignLineage(node *Node, root, rootSession, inheritedWS string, options Op
 	if node.WorkstreamID == "" {
 		node.WorkstreamID = inheritedWS
 	}
-	if node.WorkstreamID != "" {
+	if node.WorkstreamID != "" && !preserveRoot {
 		node.RootKey = WorkstreamRootKey(node.WorkstreamID)
 	}
 	if pinned, ok := options.Roots.RootKey(node.Run.SessionID); ok {
 		node.RootKey, node.RootSessionID, node.Detached = pinned, node.Run.SessionID, true
+		preserveRoot = true
 	}
 	node.Segments = Segments(node.Run, options.Idle, options.Now)
 	node.Idle = options.Idle
@@ -176,7 +181,7 @@ func assignLineage(node *Node, root, rootSession, inheritedWS string, options Op
 		return cmp.Or(a.Run.StartedAt.Compare(b.Run.StartedAt), strings.Compare(a.Run.SessionID, b.Run.SessionID))
 	})
 	for _, child := range node.Children {
-		assignLineage(child, node.RootKey, node.RootSessionID, node.WorkstreamID, options)
+		assignLineage(child, node.RootKey, node.RootSessionID, node.WorkstreamID, preserveRoot, options)
 	}
 }
 func holdDescendants(node *Node, forest *Forest) {
