@@ -1,0 +1,2 @@
+# gofmt and the size and generate scripts expect LF, also on Windows checkouts.
+* text=auto eol=lf
