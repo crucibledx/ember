@@ -149,7 +149,7 @@ require (
 	go.opentelemetry.io/collector/pipeline/xpipeline v0.166.0 // indirect
 	go.opentelemetry.io/collector/processor/processorhelper v0.166.0 // indirect
 	go.opentelemetry.io/collector/processor/processorhelper/xprocessorhelper v0.166.0 // indirect
-	go.opentelemetry.io/collector/processor/processortest v0.166.0 // indirect
+	go.opentelemetry.io/collector/processor/processortest v0.166.0
 	go.opentelemetry.io/collector/processor/xprocessor v0.166.0 // indirect
 	go.opentelemetry.io/collector/receiver/receiverhelper v0.166.0 // indirect
 	go.opentelemetry.io/collector/receiver/receiverhelper/xreceiverhelper v0.166.0 // indirect

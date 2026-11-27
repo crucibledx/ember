@@ -4,6 +4,7 @@ package main
 
 import (
 	registry "github.com/crucibledx/ember/internal/extension/registry"
+	ember "github.com/crucibledx/ember/internal/processor/ember"
 	sessions "github.com/crucibledx/ember/internal/receiver/sessions"
 	bearertokenauthextension "github.com/open-telemetry/opentelemetry-collector-contrib/extension/bearertokenauthextension"
 	deltatocumulativeprocessor "github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor"
@@ -85,6 +86,7 @@ func components() (otelcol.Factories, error) {
 		memorylimiterprocessor.NewFactory(),
 		batchprocessor.NewFactory(),
 		deltatocumulativeprocessor.NewFactory(),
+		ember.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err
@@ -93,6 +95,7 @@ func components() (otelcol.Factories, error) {
 		memorylimiterprocessor.NewFactory().Type():     "go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.166.0",
 		batchprocessor.NewFactory().Type():             "go.opentelemetry.io/collector/processor/batchprocessor v0.166.0",
 		deltatocumulativeprocessor.NewFactory().Type(): "github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.166.0",
+		ember.NewFactory().Type():                      "github.com/crucibledx/ember v0.0.0",
 	})
 
 	factories.Connectors, err = otelcol.MakeFactoryMap[connector.Factory]()

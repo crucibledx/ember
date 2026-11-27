@@ -20,6 +20,9 @@ processors:
   - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.166.0
   - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.166.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.166.0
+  - gomod: github.com/crucibledx/ember v0.0.0
+    import: github.com/crucibledx/ember/internal/processor/ember
+    path: ./
 
 exporters:
   - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.166.0

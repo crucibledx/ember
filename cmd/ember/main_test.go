@@ -43,10 +43,7 @@ func TestComponentsMatchSpec(t *testing.T) {
 		"extension": {"bearertokenauth", "ember"},
 		"connector": {},
 	}
-	// Ember's own components land with the issue that implements them; that issue deletes its entry here.
-	notYetBuilt := map[string]string{
-		"processor/ember": "crucibledx/ember#9",
-	}
+	notYetBuilt := map[string]string{}
 
 	factories, err := components()
 	if err != nil {

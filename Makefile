@@ -65,7 +65,7 @@ golangci-lint-version:
 generate:
 	rm -rf build/ocb build/mdatagen
 	mkdir -p build/mdatagen
-	cd build/mdatagen && $(GO) mod init ember.local/mdatagen && $(GO) get go.opentelemetry.io/collector/cmd/mdatagen@$(OCB_VERSION) && $(GO) run go.opentelemetry.io/collector/cmd/mdatagen ../../internal/receiver/sessions/metadata.yaml && $(GO) run go.opentelemetry.io/collector/cmd/mdatagen ../../internal/extension/registry/metadata.yaml
+	cd build/mdatagen && $(GO) mod init ember.local/mdatagen && $(GO) get go.opentelemetry.io/collector/cmd/mdatagen@$(OCB_VERSION) && $(GO) run go.opentelemetry.io/collector/cmd/mdatagen ../../internal/receiver/sessions/metadata.yaml && $(GO) run go.opentelemetry.io/collector/cmd/mdatagen ../../internal/extension/registry/metadata.yaml && $(GO) run go.opentelemetry.io/collector/cmd/mdatagen ../../internal/processor/ember/metadata.yaml
 	mkdir -p build
 	$(GO) run go.opentelemetry.io/collector/cmd/builder@$(OCB_VERSION) --config builder-config.yaml --skip-compilation
 	cp build/ocb/components.go cmd/ember/components.go
