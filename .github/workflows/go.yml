@@ -43,17 +43,18 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: go build
-        run: go build ./...
+        run: make build
       - name: go vet
-        run: go vet ./...
+        run: make vet
       - name: go test -race
-        env:
-          CGO_ENABLED: "1"
-        run: go test -race ./...
-      - name: golangci-lint
+        run: make test
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-only: true
+      - name: golangci-lint
+        run: make lint
 
   generate:
     name: generated files
@@ -64,7 +65,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Regenerate components.go, go.mod and go.sum from builder-config.yaml
-        run: scripts/generate.sh
+        run: make generate
       - name: Committed files match the generator
         run: |
           git status --short
@@ -90,7 +91,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           # Outside the checkout: an untracked file would stamp the binaries' commit as -dirty.
-          scripts/build.sh "$VERSION" | tee "$RUNNER_TEMP/sizes.txt"
+          make dist | tee "$RUNNER_TEMP/sizes.txt"
           {
             echo "### ember binary sizes (limit ${MAX_BINARY_MIB} MiB)"
             echo '```'

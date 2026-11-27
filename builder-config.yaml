@@ -1,7 +1,7 @@
 # OpenTelemetry Collector Builder (ocb) manifest. ocb generates only cmd/ember/components.go
-# (scripts/generate.sh); cmd/ember/main.go is Ember's own. The component list is spec 0001 §1: a new component needs a
+# (make generate); cmd/ember/main.go is Ember's own. The component list is spec 0001 §1: a new component needs a
 # spec line. Every version comes from one upstream release (core v0.166.0 / v1.72.0, contrib v0.166.0), and
-# OCB_VERSION in scripts/generate.sh matches it. Ember's own components are added here as local modules
+# OCB_VERSION in the Makefile matches it. Ember's own components are added here as local modules
 # (`gomod: github.com/crucibledx/ember v0.0.0`, `import: github.com/crucibledx/ember/internal/...`, `path: ./`).
 dist:
   module: github.com/crucibledx/ember/build/ocb

@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"testing"
 
 	"go.opentelemetry.io/collector/component"
 
+	"github.com/crucibledx/ember/internal/buildinfo"
 	"github.com/crucibledx/ember/internal/cli"
 )
 
@@ -101,7 +104,7 @@ service:
 	}
 	t.Setenv("EMBER_TEST_ENDPOINT", "127.0.0.1:4318")
 
-	info := cli.NewBuildInfo("0.1.0", "", "", nil)
+	info := buildinfo.New("0.1.0", "", "", nil)
 	root := cli.NewRootCommand(info, collectorSettings(info))
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -109,5 +112,17 @@ service:
 	root.SetArgs([]string{"run", "validate", "--config", config})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("ember run validate: %v\n%s", err, out.String())
+	}
+}
+
+// The otelcol version comes from the module graph of the binary that links the collector, so it is checked here.
+func TestBuildInfoReadsLinkedCollector(t *testing.T) {
+	build, ok := debug.ReadBuildInfo()
+	if !ok {
+		t.Fatal("no build information in the test binary")
+	}
+	got := buildinfo.New("0.1.0", "", "", build).OtelCol
+	if !regexp.MustCompile(`^0\.\d+\.\d+$`).MatchString(got) {
+		t.Errorf("otelcol version = %q, want the linked otelcol module version", got)
 	}
 }

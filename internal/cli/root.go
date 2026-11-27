@@ -4,10 +4,12 @@ package cli
 import (
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/collector/otelcol"
+
+	"github.com/crucibledx/ember/internal/buildinfo"
 )
 
 // NewRootCommand returns the `ember` command with its subcommands.
-func NewRootCommand(info BuildInfo, collector otelcol.CollectorSettings) *cobra.Command {
+func NewRootCommand(info buildinfo.Info, collector otelcol.CollectorSettings) *cobra.Command {
 	root := &cobra.Command{
 		Use:               "ember",
 		Short:             "OpenTelemetry for coding agents",

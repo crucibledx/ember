@@ -1,4 +1,5 @@
-# Build output: release binaries (scripts/build.sh) and the ocb scratch module (scripts/generate.sh).
+# Build output: make build (bin/), make dist (release binaries) and make generate (the ocb scratch module).
+bin/
 dist/
 build/
 .DS_Store

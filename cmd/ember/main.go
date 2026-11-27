@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/collector/confmap/provider/yamlprovider"
 	"go.opentelemetry.io/collector/otelcol"
 
+	"github.com/crucibledx/ember/internal/buildinfo"
 	"github.com/crucibledx/ember/internal/cli"
 )
 
@@ -25,13 +26,13 @@ var (
 
 func main() {
 	goBuild, _ := debug.ReadBuildInfo()
-	info := cli.NewBuildInfo(version, commit, date, goBuild)
+	info := buildinfo.New(version, commit, date, goBuild)
 	if err := cli.NewRootCommand(info, collectorSettings(info)).Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func collectorSettings(info cli.BuildInfo) otelcol.CollectorSettings {
+func collectorSettings(info buildinfo.Info) otelcol.CollectorSettings {
 	return otelcol.CollectorSettings{
 		BuildInfo: component.BuildInfo{
 			Command:     "ember",
