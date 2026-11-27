@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,30 +13,37 @@ import (
 )
 
 type RootState interface {
-	RootKey(runID string) (string, bool)
-	PinRoot(runID, rootKey string)
-	MissingSince(runID string, now time.Time) time.Time
+	RootKey(harnessName, runID string) (string, bool)
+	PinRoot(harnessName, runID, rootKey string)
+	MissingSince(harnessName, runID string, now time.Time) time.Time
 }
 type RootPins struct {
 	Roots   map[string]string
 	Missing map[string]time.Time
 }
 
-func (p *RootPins) RootKey(runID string) (string, bool) { key, ok := p.Roots[runID]; return key, ok }
-func (p *RootPins) PinRoot(runID, rootKey string) {
+func RootRunID(harnessName, runID string) string {
+	return strconv.Itoa(len(harnessName)) + ":" + harnessName + runID
+}
+func (p *RootPins) RootKey(harnessName, runID string) (string, bool) {
+	key, ok := p.Roots[RootRunID(harnessName, runID)]
+	return key, ok
+}
+func (p *RootPins) PinRoot(harnessName, runID, rootKey string) {
 	if p.Roots == nil {
 		p.Roots = map[string]string{}
 	}
-	p.Roots[runID] = rootKey
+	p.Roots[RootRunID(harnessName, runID)] = rootKey
 }
-func (p *RootPins) MissingSince(runID string, now time.Time) time.Time {
+func (p *RootPins) MissingSince(harnessName, runID string, now time.Time) time.Time {
 	if p.Missing == nil {
 		p.Missing = map[string]time.Time{}
 	}
-	if at, ok := p.Missing[runID]; ok {
+	key := RootRunID(harnessName, runID)
+	if at, ok := p.Missing[key]; ok {
 		return at
 	}
-	p.Missing[runID] = now
+	p.Missing[key] = now
 	return now
 }
 
@@ -75,10 +83,18 @@ func BuildForest(runs []harness.Run, options Options) *Forest {
 	}
 	forest := &Forest{Nodes: map[string]*Node{}}
 	ordered := append([]harness.Run(nil), runs...)
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].SessionID < ordered[j].SessionID })
+	sort.Slice(ordered, func(i, j int) bool {
+		return cmp.Or(strings.Compare(ordered[i].SessionID, ordered[j].SessionID), strings.Compare(ordered[i].Harness, ordered[j].Harness)) < 0
+	})
 	for _, run := range ordered {
-		if _, exists := forest.Nodes[run.SessionID]; !exists {
-			forest.Nodes[run.SessionID] = &Node{Run: run}
+		key := run.SessionID
+		if existing := forest.Nodes[key]; existing != nil && existing.Run.Harness != run.Harness {
+			delete(forest.Nodes, key)
+			forest.Nodes[existing.Run.Harness+"/"+existing.Run.SessionID] = existing
+			key = run.Harness + "/" + run.SessionID
+		}
+		if _, exists := forest.Nodes[key]; !exists {
+			forest.Nodes[key] = &Node{Run: run}
 		}
 	}
 	for _, node := range forest.Ordered() {
@@ -108,8 +124,15 @@ func linkParent(forest *Forest, node *Node, roots RootState) {
 	}
 	copyRef := *ref
 	node.Parent = &copyRef
-	if parent := forest.Nodes[ref.SessionID]; parent != nil {
-		if key, ok := roots.RootKey(node.Run.SessionID); ok {
+	parent := forest.Nodes[node.Run.Harness+"/"+ref.SessionID]
+	if parent == nil {
+		parent = forest.Nodes[ref.SessionID]
+		if parent != nil && parent.Run.Harness != node.Run.Harness {
+			parent = nil
+		}
+	}
+	if parent != nil {
+		if key, ok := roots.RootKey(node.Run.Harness, node.Run.SessionID); ok {
 			node.RootKey, node.Detached = key, true
 			return
 		}
@@ -129,7 +152,7 @@ func spawningCall(parent harness.Run, childID string) string {
 	return ""
 }
 func resolveOrphan(forest *Forest, node *Node, options Options) {
-	if key, ok := options.Roots.RootKey(node.Run.SessionID); ok {
+	if key, ok := options.Roots.RootKey(node.Run.Harness, node.Run.SessionID); ok {
 		node.RootKey, node.Detached = key, true
 		return
 	}
@@ -138,7 +161,7 @@ func resolveOrphan(forest *Forest, node *Node, options Options) {
 		node.RootSessionID = node.Parent.SessionID
 		return
 	}
-	since := options.Roots.MissingSince(node.Run.SessionID, options.Now)
+	since := options.Roots.MissingSince(node.Run.Harness, node.Run.SessionID, options.Now)
 	if options.Now.Before(since.Add(options.Idle)) {
 		node.Held = true
 		forest.Held = append(forest.Held, node)
@@ -146,7 +169,7 @@ func resolveOrphan(forest *Forest, node *Node, options Options) {
 	}
 	node.RootKey = SessionRootKey(node.Run.Harness, node.Run.SessionID)
 	node.Detached = true
-	options.Roots.PinRoot(node.Run.SessionID, node.RootKey)
+	options.Roots.PinRoot(node.Run.Harness, node.Run.SessionID, node.RootKey)
 }
 func assignLineage(node *Node, root, rootSession, inheritedWS string, preserveRoot bool, options Options) {
 	if root == "" {
@@ -160,7 +183,7 @@ func assignLineage(node *Node, root, rootSession, inheritedWS string, preserveRo
 	if node.WorkstreamID != "" && !preserveRoot {
 		node.RootKey = WorkstreamRootKey(node.WorkstreamID)
 	}
-	if pinned, ok := options.Roots.RootKey(node.Run.SessionID); ok {
+	if pinned, ok := options.Roots.RootKey(node.Run.Harness, node.Run.SessionID); ok {
 		node.RootKey, node.RootSessionID, node.Detached = pinned, node.Run.SessionID, true
 		preserveRoot = true
 	}

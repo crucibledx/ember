@@ -63,7 +63,9 @@ golangci-lint-version:
 # build/ocb; the go list line pins the same versions here so this module builds exactly what the manifest names, then
 # tidy drops what Ember does not import.
 generate:
-	rm -rf build/ocb
+	rm -rf build/ocb build/mdatagen
+	mkdir -p build/mdatagen
+	cd build/mdatagen && $(GO) mod init ember.local/mdatagen && $(GO) get go.opentelemetry.io/collector/cmd/mdatagen@$(OCB_VERSION) && $(GO) run go.opentelemetry.io/collector/cmd/mdatagen ../../internal/receiver/sessions/metadata.yaml && $(GO) run go.opentelemetry.io/collector/cmd/mdatagen ../../internal/extension/registry/metadata.yaml
 	mkdir -p build
 	$(GO) run go.opentelemetry.io/collector/cmd/builder@$(OCB_VERSION) --config builder-config.yaml --skip-compilation
 	cp build/ocb/components.go cmd/ember/components.go
