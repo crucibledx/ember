@@ -1,6 +1,7 @@
 #!/bin/sh
 # Usage: check-version.sh VERSION
 # Exits 0 when VERSION is a SemVer 2.0.0 version without a leading v (e.g. 0.1.0, 1.2.3-rc.1+build.5), else 1.
+# Not a make target: `make dist` calls it with any VERSION, and check-version_test.sh runs it on its own cases.
 set -eu
 # Bracket ranges in byte order, so [A-Za-z] never matches non-ASCII letters.
 export LC_ALL=C

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Usage: check-binary-size.sh MAX_MIB FILE...
 # Prints each file's size and exits 1 when any file is larger than MAX_MIB mebibytes.
+# Not a make target: `make dist` runs it on the built binaries, and CI's self-test on files just over and at the limit.
 set -eu
 
 if [ "$#" -lt 2 ]; then

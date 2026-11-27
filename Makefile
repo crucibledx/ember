@@ -1,11 +1,14 @@
 # Ember task runner. Needs GNU make 3.81 or later and a POSIX shell (Git Bash on Windows).
 #   make check                   build, vet, race tests and lint: what CI runs on every OS
+#   make fmt                     gofmt and goimports through golangci-lint
 #   make generate                regenerate cmd/ember/components.go, go.mod and go.sum from builder-config.yaml
 #   make dist [VERSION=x.y.z]    five stripped release binaries in dist/ and the size gate
 #   make clean                   remove dist/ and build/
 
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
+# The one pin for golangci-lint: CI installs this version (make golangci-lint-version); use the same one locally.
+GOLANGCI_LINT_VERSION := v2.15.0
 
 MODULE := github.com/crucibledx/ember
 # The ocb release matching the component versions in builder-config.yaml.
@@ -25,7 +28,7 @@ export MAX_BINARY_MIB VERSION
 BINARIES := $(foreach target,$(TARGETS),dist/ember_$(subst /,_,$(target))$(if $(filter windows/%,$(target)),.exe))
 
 .DEFAULT_GOAL := check
-.PHONY: check build vet test lint generate dist release-version clean FORCE
+.PHONY: check build vet test lint fmt golangci-lint-version generate dist release-version clean FORCE
 
 check: build vet test lint
 
@@ -36,12 +39,17 @@ vet:
 	$(GO) vet ./...
 
 # The race detector needs cgo.
-test: export CGO_ENABLED := 1
 test:
-	$(GO) test -race ./...
+	CGO_ENABLED=1 $(GO) test -race ./...
 
 lint:
 	$(GOLANGCI_LINT) run
+
+fmt:
+	$(GOLANGCI_LINT) fmt
+
+golangci-lint-version:
+	@echo $(GOLANGCI_LINT_VERSION)
 
 # ocb creates only the last element of output_path, hence the mkdir. It resolves the collector's module graph in
 # build/ocb; the go list line pins the same versions here so this module builds exactly what the manifest names, then

@@ -1,4 +1,4 @@
-# golangci-lint v2 configuration. CI pins the golangci-lint version in .github/workflows/go.yml.
+# golangci-lint v2 configuration. The version is pinned once, as GOLANGCI_LINT_VERSION in the Makefile.
 version: "2"
 
 linters:
