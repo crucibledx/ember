@@ -1,0 +1,40 @@
+{
+  "harness": "fake",
+  "sessionId": "session-1",
+  "kind": "subagent",
+  "agentType": "worker",
+  "workstreamId": "work-1",
+  "parent": {
+    "sessionId": "parent-1",
+    "toolCallId": "spawn-1"
+  },
+  "status": "completed",
+  "startedAt": "2026-11-01T10:00:00Z",
+  "endedAt": "2026-11-01T10:05:00Z",
+  "model": "model-v1",
+  "usage": {
+    "model-v1": {
+      "input": 10,
+      "output": 20,
+      "cacheRead": 30,
+      "cacheWrite": 40,
+      "credits": 1.5
+    }
+  },
+  "llmTurns": 1,
+  "turnTimes": ["2026-11-01T10:00:05Z"],
+  "toolCalls": [
+    {
+      "id": "call-1",
+      "name": "Read",
+      "startedAt": "2026-11-01T10:01:00Z",
+      "endedAt": "2026-11-01T10:01:02Z",
+      "isError": false,
+      "spawnedSessionIds": ["child-1"]
+    }
+  ],
+  "cwd": "/workspace/project",
+  "branch": "feature/test",
+  "owner": "owner-1",
+  "hostId": "host-1"
+}
