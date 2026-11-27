@@ -81,13 +81,15 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/extension/internal/credentialsfile v0.166.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics v0.166.0 // indirect
+	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.166.0
+	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.166.0
 	github.com/pandatix/go-abnf v0.5.5 // indirect
 	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/common v0.74.0 // indirect
-	github.com/prometheus/otlptranslator v1.0.0 // indirect
+	github.com/prometheus/otlptranslator v1.0.0
 	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/puzpuzpuz/xsync/v4 v4.5.0 // indirect
 	github.com/rs/cors v1.11.1 // indirect
@@ -138,7 +140,7 @@ require (
 	go.opentelemetry.io/collector/internal/sharedcomponent v0.166.0 // indirect
 	go.opentelemetry.io/collector/internal/statusutil v0.166.0 // indirect
 	go.opentelemetry.io/collector/internal/telemetry v0.166.0 // indirect
-	go.opentelemetry.io/collector/pdata v1.72.0 // indirect
+	go.opentelemetry.io/collector/pdata v1.72.0
 	go.opentelemetry.io/collector/pdata/pprofile v0.166.0 // indirect
 	go.opentelemetry.io/collector/pdata/testdata v0.166.0 // indirect
 	go.opentelemetry.io/collector/pdata/xpdata v0.166.0 // indirect
