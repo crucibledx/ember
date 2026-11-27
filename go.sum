@@ -151,6 +151,10 @@ github.com/open-telemetry/opentelemetry-collector-contrib/extension/internal/cre
 github.com/open-telemetry/opentelemetry-collector-contrib/extension/internal/credentialsfile v0.166.0/go.mod h1:ES7NpVsTrG0v/t8k3FOkEtoGQlcif3il2Lc9hwnP9sE=
 github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics v0.166.0 h1:9CXo9qTg83tZ2MKogbjgn+f3NRVXjkSjLZZHMnveKIA=
 github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics v0.166.0/go.mod h1:w2gEcPs9h54GY0FoEGE85KVDVSrCn/b3Fn4oRyMeZ28=
+github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.166.0 h1:B9a9oMOs01iGjjebNZH7Dtp3yWA3/5lcfTX7+ngBHrI=
+github.com/open-telemetry/opentelemetry-collector-contrib/pkg/golden v0.166.0/go.mod h1:Nlc6QDOtbhjeQeIEXBa1xQofQq7IP4kEu5bCN9GaRfw=
+github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.166.0 h1:1vADyUMXM56GZGrtTI7HD2nA6OkGOz9U/wqle7y/rmg=
+github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatatest v0.166.0/go.mod h1:Rn4JfgRjGAydbt1JfIcjn2VyC2nvRHxi1j/xb25uDdY=
 github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.166.0 h1:DMbkp/OxKNgphx2OJaMQ+iTU+ZIoSAx4NMXEDBU6XPk=
 github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.166.0/go.mod h1:hGE5BS3FljMX3goP2Uw0qtZQs75aD9LAoDnOOqEuHtI=
 github.com/pandatix/go-abnf v0.5.5 h1:EXex5KkRQx4Dm6GnpAcQnIMBs9KiK0uf8p/wq+4t9PM=
