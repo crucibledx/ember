@@ -1,0 +1,3 @@
+{"type":"session_start","id":"00000000-0000-4000-8000-000000000003","title":"TOP-SECRET-PROMPT-TEXT","cwd":"/workspace/subagent","callingSessionId":"00000000-0000-4000-8000-000000000002","owner":"owner-1","hostId":"host-2"}
+{"type":"message","id":"m5user","timestamp":"2026-11-11T10:05:00Z","message":{"role":"user","content":[{"type":"text","text":"TOP-SECRET-PROMPT-TEXT"}]}}
+{"type":"message","id":"m8assistant","timestamp":"2026-11-11T10:08:00Z","message":{"role":"assistant","modelId":"model-y","content":[{"type":"text","text":"TOP-SECRET-PROMPT-TEXT"}]}}
