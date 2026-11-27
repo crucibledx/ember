@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -18,8 +19,11 @@ const droidSessionsPath = ".factory/sessions"
 const droidTaskInvocationPath = ".factory/state/task-invocations.json"
 
 var (
-	droidSessionIDPattern = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
-	droidMCPPattern       = regexp.MustCompile(`^(.+?)___(.+)$`)
+	droidSessionIDPattern   = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+	droidMCPPattern         = regexp.MustCompile(`^(.+?)___(.+)$`)
+	droidStatusByInvocation = map[string]RunStatus{
+		"completed": StatusCompleted, "running": StatusRunning, "cancelled": StatusCancelled, "failed": StatusFailed, "error": StatusFailed,
+	}
 )
 
 type droidAdapter struct{}
@@ -39,7 +43,7 @@ func (droidAdapter) Detect(env Env) Detection {
 		onPath = err == nil
 	}
 	detection := Detection{
-		Installed: onPath || droidPathExists(env.FS, ".factory"),
+		Installed: onPath || (env.FS != nil && droidPathExists(env.FS, ".factory")),
 	}
 	if !detection.Installed {
 		return detection
@@ -82,26 +86,33 @@ func (droidAdapter) Sessions(env Env) ([]SessionRef, error) {
 	if env.FS == nil {
 		return nil, nil
 	}
-	matches, err := fs.Glob(env.FS, path.Join(droidSessionsPath, "*", "*.jsonl"))
-	if err != nil {
-		return nil, fmt.Errorf("find droid sessions: %w", err)
+	projects, err := fs.ReadDir(env.FS, droidSessionsPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
 	}
-	refs := make([]SessionRef, 0, len(matches))
-	for _, sessionPath := range matches {
-		runID := strings.TrimSuffix(path.Base(sessionPath), ".jsonl")
-		if runID == "" {
+	if err != nil {
+		return nil, fmt.Errorf("read droid sessions directory: %w", err)
+	}
+	var refs []SessionRef
+	for _, project := range projects {
+		if !project.IsDir() {
 			continue
 		}
-		ref := SessionRef{RunID: runID, Files: []string{sessionPath}}
-		settingsPath := strings.TrimSuffix(sessionPath, ".jsonl") + ".settings.json"
-		if droidPathExists(env.FS, settingsPath) {
-			ref.Files = append(ref.Files, settingsPath)
+		projectPath := path.Join(droidSessionsPath, project.Name())
+		files, err := fs.ReadDir(env.FS, projectPath)
+		if err != nil {
+			return nil, fmt.Errorf("read droid session directory %q: %w", projectPath, err)
 		}
-		refs = append(refs, ref)
-	}
-	if len(refs) > 0 && droidPathExists(env.FS, droidTaskInvocationPath) {
-		for i := range refs {
-			refs[i].Files = append(refs[i].Files, droidTaskInvocationPath)
+		for _, file := range files {
+			runID := strings.TrimSuffix(file.Name(), ".jsonl")
+			if file.IsDir() || runID == file.Name() || runID == "" {
+				continue
+			}
+			sessionPath := path.Join(projectPath, file.Name())
+			settingsPath := strings.TrimSuffix(sessionPath, ".jsonl") + ".settings.json"
+			refs = append(refs, SessionRef{
+				RunID: runID, Files: []string{sessionPath, settingsPath, droidTaskInvocationPath},
+			})
 		}
 	}
 	sort.Slice(refs, func(i, j int) bool {
@@ -114,9 +125,6 @@ func (droidAdapter) Sessions(env Env) ([]SessionRef, error) {
 }
 
 func droidPathExists(fsys fs.FS, name string) bool {
-	if fsys == nil {
-		return false
-	}
 	_, err := fs.Stat(fsys, name)
 	return err == nil
 }
@@ -153,13 +161,7 @@ type droidSessionStart struct {
 }
 
 func (droidAdapter) Parse(fsys fs.FS, ref SessionRef) (Run, error) {
-	sessionFile := ""
-	for _, name := range ref.Files {
-		if strings.HasSuffix(name, ".jsonl") {
-			sessionFile = name
-			break
-		}
-	}
+	sessionFile := droidRefFile(ref, ".jsonl")
 	if sessionFile == "" {
 		return Run{}, fmt.Errorf("parse droid session %q: no session file", ref.RunID)
 	}
@@ -168,8 +170,14 @@ func (droidAdapter) Parse(fsys fs.FS, ref SessionRef) (Run, error) {
 		return Run{}, fmt.Errorf("read droid session %q: %w", ref.RunID, err)
 	}
 
-	settings := droidReadSettings(fsys, ref)
-	invocations := droidReadInvocations(fsys, ref)
+	settings, err := droidReadSettings(fsys, ref)
+	if err != nil {
+		return Run{}, fmt.Errorf("parse droid session %q: %w", ref.RunID, err)
+	}
+	invocations, err := droidReadInvocations(fsys, ref)
+	if err != nil {
+		return Run{}, fmt.Errorf("parse droid session %q: %w", ref.RunID, err)
+	}
 	invocation, hasInvocation := invocations[ref.RunID]
 	var start droidSessionStart
 	var startedAt, endedAt time.Time
@@ -363,35 +371,51 @@ func droidSessionIDs(content json.RawMessage) []string {
 	return ids
 }
 
-func droidReadSettings(fsys fs.FS, ref SessionRef) droidSettings {
-	var settings droidSettings
+func droidRefFile(ref SessionRef, suffix string) string {
 	for _, name := range ref.Files {
-		if !strings.HasSuffix(name, ".settings.json") {
-			continue
+		if strings.HasSuffix(name, suffix) {
+			return name
 		}
-		data, err := fs.ReadFile(fsys, name)
-		if err != nil || json.Unmarshal(data, &settings) != nil {
-			return droidSettings{}
-		}
-		break
 	}
-	return settings
+	return ""
 }
 
-func droidReadInvocations(fsys fs.FS, ref SessionRef) map[string]droidInvocation {
+func droidReadSettings(fsys fs.FS, ref SessionRef) (droidSettings, error) {
+	var settings droidSettings
+	name := droidRefFile(ref, ".settings.json")
+	if name == "" {
+		return settings, nil
+	}
+	data, err := fs.ReadFile(fsys, name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return settings, nil
+	}
+	if err != nil {
+		return settings, fmt.Errorf("read droid settings: %w", err)
+	}
+	if json.Unmarshal(data, &settings) != nil {
+		return droidSettings{}, nil
+	}
+	return settings, nil
+}
+
+func droidReadInvocations(fsys fs.FS, ref SessionRef) (map[string]droidInvocation, error) {
 	byChild := map[string]droidInvocation{}
 	if !slices.Contains(ref.Files, droidTaskInvocationPath) {
-		return byChild
+		return byChild, nil
 	}
 	data, err := fs.ReadFile(fsys, droidTaskInvocationPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return byChild, nil
+	}
 	if err != nil {
-		return byChild
+		return nil, fmt.Errorf("read droid task invocations: %w", err)
 	}
 	var file struct {
 		Invocations []json.RawMessage `json:"invocations"`
 	}
 	if json.Unmarshal(data, &file) != nil {
-		return byChild
+		return byChild, nil
 	}
 	for _, raw := range file.Invocations {
 		var invocation droidInvocation
@@ -403,7 +427,7 @@ func droidReadInvocations(fsys fs.FS, ref SessionRef) map[string]droidInvocation
 			byChild[invocation.ChildSessionID] = invocation
 		}
 	}
-	return byChild
+	return byChild, nil
 }
 
 func droidKindAndWorkstream(settings droidSettings, sessionID string, hasInvocation bool) (AgentKind, string) {
@@ -439,21 +463,12 @@ func droidKindAndWorkstream(settings droidSettings, sessionID string, hasInvocat
 }
 
 func droidInvocationStatus(status string, present bool) RunStatus {
-	if !present {
-		return StatusUnknown
+	if present {
+		if normalized, ok := droidStatusByInvocation[status]; ok {
+			return normalized
+		}
 	}
-	switch status {
-	case "completed":
-		return StatusCompleted
-	case "running":
-		return StatusRunning
-	case "cancelled":
-		return StatusCancelled
-	case "failed", "error":
-		return StatusFailed
-	default:
-		return StatusUnknown
-	}
+	return StatusUnknown
 }
 
 func droidSortedToolCalls(calls map[string]ToolCall) []ToolCall {
@@ -478,16 +493,7 @@ func (droidAdapter) Mapping() Mapping {
 		ToolNameKeys: []string{"gen_ai.tool.name"},
 		ToolSpanName: "execute_tool ",
 		MCP:          droidMCPPattern,
-		NativeAllow:  droidNativeAllow(),
+		NativeAllow:  strings.Fields("user.id organization.id model.id parent_session.id gen_ai.operation.name gen_ai.request.model gen_ai.response.model gen_ai.provider.name gen_ai.tool.type gen_ai.agent.name tool.category tool.runtime tool.succeeded session.autonomy_mode environment.type skill.location hook.event_name mcp.server terminal.type"),
 		OwnerKeys:    []string{"user.id"},
-	}
-}
-
-func droidNativeAllow() []string {
-	return []string{
-		"user.id", "organization.id", "model.id", "parent_session.id",
-		"gen_ai.operation.name", "gen_ai.request.model", "gen_ai.response.model", "gen_ai.provider.name",
-		"gen_ai.tool.type", "gen_ai.agent.name", "tool.category", "tool.runtime", "tool.succeeded",
-		"session.autonomy_mode", "environment.type", "skill.location", "hook.event_name", "mcp.server", "terminal.type",
 	}
 }

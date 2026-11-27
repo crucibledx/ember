@@ -55,6 +55,17 @@ func TestDroidSessions(t *testing.T) {
 	}
 }
 
+func TestDroidSessionsReadError(t *testing.T) {
+	fsys := droidReadDirErrorFS{
+		FS:   fstest.MapFS{".factory/sessions/project/s.jsonl": {Data: []byte("{}\n")}},
+		path: ".factory/sessions/project",
+	}
+	_, err := droidAdapterUnderTest(t).Sessions(harness.Env{FS: fsys})
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("Sessions() error = %v, want fs.ErrPermission", err)
+	}
+}
+
 func TestDroidParse(t *testing.T) {
 	runs := droidFixtureRuns(t)
 
@@ -170,6 +181,31 @@ func TestDroidParseWithoutUsableRecords(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "no timestamped records") {
 		t.Fatalf("Parse() error = %v, want no timestamped records", err)
+	}
+}
+
+func TestDroidParseSideInputReadErrors(t *testing.T) {
+	sessionPath := ".factory/sessions/project/s.jsonl"
+	settingsPath := ".factory/sessions/project/s.settings.json"
+	taskPath := ".factory/state/task-invocations.json"
+	for _, failedPath := range []string{settingsPath, taskPath} {
+		t.Run(failedPath, func(t *testing.T) {
+			fsys := droidOpenErrorFS{
+				FS: fstest.MapFS{
+					sessionPath: {Data: []byte(`{"type":"message","timestamp":"2026-11-11T10:00:00Z","message":{"role":"user","content":[]}}
+`)},
+					settingsPath: {Data: []byte("{}")},
+					taskPath:     {Data: []byte(`{"invocations":[]}`)},
+				},
+				path: failedPath,
+			}
+			_, err := droidAdapterUnderTest(t).Parse(fsys, harness.SessionRef{
+				RunID: "s", Files: []string{sessionPath, settingsPath, taskPath},
+			})
+			if !errors.Is(err, fs.ErrPermission) {
+				t.Fatalf("Parse() error = %v, want fs.ErrPermission for %s", err, failedPath)
+			}
+		})
 	}
 }
 
@@ -356,4 +392,28 @@ func droidParseSynthetic(t *testing.T, session, settings string) harness.Run {
 		t.Fatalf("Parse(synthetic): %v", err)
 	}
 	return run
+}
+
+type droidReadDirErrorFS struct {
+	fs.FS
+	path string
+}
+
+func (f droidReadDirErrorFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	if name == f.path {
+		return nil, fs.ErrPermission
+	}
+	return fs.ReadDir(f.FS, name)
+}
+
+type droidOpenErrorFS struct {
+	fs.FS
+	path string
+}
+
+func (f droidOpenErrorFS) Open(name string) (fs.File, error) {
+	if name == f.path {
+		return nil, fs.ErrPermission
+	}
+	return f.FS.Open(name)
 }
